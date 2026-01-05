@@ -1,0 +1,50 @@
+# === SEGURIDAD SPACEPARK ===
+
+# 1. Deshabilitar listado de directorios (Evita que vean tus archivos si no hay index.php)
+Options -Indexes
+
+# 2. Proteger archivos sensibles y de sistema
+# Bloquea acceso a archivos de git, composer, markdown, scripts de instalación, etc.
+<FilesMatch "(\.env|\.git|\.gitignore|\.composer|\.lock|composer\.json|package\.json|\.md|\.ps1|\.bat|LICENSE)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# 3. Protección de Carpetas Internas
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Bloquear acceso directo desde el navegador a estas carpetas
+    # config: Credenciales de BD
+    RewriteRule ^config/ - [F,L]
+    # src: Clases del sistema
+    RewriteRule ^src/ - [F,L]
+    # instalacion_optional: Manuales y scripts
+    RewriteRule ^instalacion_optional/ - [F,L]
+    
+    # Nota: install/ se deja accesible para la instalación, 
+    # pero el usuario debería borrarla después o protegerla aquí si ya instaló.
+</IfModule>
+
+# 4. Seguridad de Cabeceras (Opcional pero recomendado)
+<IfModule mod_headers.c>
+    # Evita que otros sitios incrusten tu web en un iframe (Clickjacking)
+    Header always append X-Frame-Options SAMEORIGIN
+    # Protección contra ataques XSS básicos
+    Header set X-XSS-Protection "1; mode=block"
+    # Prevenir que el navegador adivine el tipo de archivo (MIME Sniffing)
+    Header set X-Content-Type-Options nosniff
+</IfModule>
+
+# 5. Compresion GZIP (Mejora velocidad en cPanel)
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/plain
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/xml
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE application/xml
+    AddOutputFilterByType DEFLATE application/xhtml+xml
+    AddOutputFilterByType DEFLATE application/rss+xml
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE application/x-javascript
+</IfModule>
