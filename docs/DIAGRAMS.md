@@ -57,3 +57,23 @@ sequenceDiagram
   Provision->>Client: import token
   Client->>API: import_token (associate tenant)
 ```
+
+---
+
+## Diagramas (SVG)
+
+A continuación se incluyen versiones exportadas en SVG de los diagramas para visualización y descarga rápida:
+
+- **Arquitectura (SVG)**
+
+![Arquitectura](diagrams/architecture.svg)
+
+- **Flujo de sincronización (SVG)**
+
+![Flujo de sincronización](diagrams/sync_flow.svg)
+
+- **Flujo de provisión (SVG)**
+
+![Flujo de provisión](diagrams/provision_flow.svg)
+
+---
