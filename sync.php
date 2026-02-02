@@ -87,7 +87,7 @@ foreach ($branchesParams as $bid) {
                 
                 // Log Success
                 $logDetails = "Sucursal {$branch['name']}: Subidas " . count($sales) . " ventas";
-                $local_db->prepare("INSERT INTO sync_logs (last_sync, details, status) VALUES (NOW(), ?, 'success')")->execute([$logDetails]);
+                $local_db->prepare("INSERT INTO sync_logs (last_sync, details, status) VALUES (" . \Database::nowSql() . ", ?, 'success')")->execute([$logDetails]);
                 echo "     [OK] Lote completado.\n";
             }
 
@@ -99,7 +99,7 @@ foreach ($branchesParams as $bid) {
         echo " [X] ERROR DE SINCRONIZACIÓN: " . $e->getMessage() . "\n";
         // Log Error
         $logDetails = "Error Sucursal {$branch['name']}: " . $e->getMessage();
-        $stmt = $local_db->prepare("INSERT INTO sync_logs (last_sync, details, status) VALUES (NOW(), ?, 'error')");
+        $stmt = $local_db->prepare("INSERT INTO sync_logs (last_sync, details, status) VALUES (" . \Database::nowSql() . ", ?, 'error')");
         $stmt->execute([$logDetails]);
     }
 }

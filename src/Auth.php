@@ -140,7 +140,7 @@ class Auth {
 
     public function updateLastActivity($userId) {
         try {
-            $stmt = $this->db->prepare("UPDATE users SET last_activity = NOW() WHERE id = ?");
+            $stmt = $this->db->prepare("UPDATE users SET last_activity = " . \Database::nowSql() . " WHERE id = ?");
             $stmt->execute([$userId]);
         } catch (Exception $e) {}
     }

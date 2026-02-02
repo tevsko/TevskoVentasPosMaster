@@ -25,10 +25,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Crear Tablas
         
-        // Users (con UUID)
+        // Tenants (SaaS - NUEVO)
+        $pdo->exec("CREATE TABLE IF NOT EXISTS tenants (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            subdomain VARCHAR(50) NOT NULL UNIQUE,
+            business_name VARCHAR(255) NOT NULL,
+            db_name VARCHAR(100) DEFAULT NULL,
+            status ENUM('active', 'inactive', 'suspended') DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_subdomain (subdomain)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        // Users (con UUID y Tenant ID)
         $pdo->exec("CREATE TABLE IF NOT EXISTS users (
             id CHAR(36) PRIMARY KEY,
-            username VARCHAR(50) NOT NULL UNIQUE,
+            tenant_id INT NULL,
+            username VARCHAR(50) NOT NULL,
             password_hash VARCHAR(255) NOT NULL,
             role ENUM('admin', 'employee', 'branch_manager') NOT NULL,
             emp_name VARCHAR(100) NULL,
@@ -37,7 +50,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             active TINYINT(1) DEFAULT 1,
             last_activity DATETIME NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY idx_user_branch (username, branch_id)
+            UNIQUE KEY idx_user_branch (username, branch_id),
+            INDEX idx_tenant_id (tenant_id)
         )");
 
         // User Logs (NUEVO)
@@ -51,7 +65,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )");
 
-        // Branches (Locales)
         // Branches (Locales)
         $pdo->exec("CREATE TABLE IF NOT EXISTS branches (
             id CHAR(36) PRIMARY KEY,
@@ -71,6 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             cloud_user VARCHAR(50) NULL,
             cloud_pass VARCHAR(255) NULL,
             mp_token VARCHAR(255) NULL,
+            mp_collector_id VARCHAR(50) NULL,
             mp_status TINYINT(1) DEFAULT 0,
             status TINYINT(1) DEFAULT 1
         )");
@@ -125,7 +139,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         )");
 
         // Crear Usuario Admin Default
-        // Función UUID v4 pura en PHP porque MySQL < 8.0 no siempre tiene UUID() nativo fácil
         function gen_uuid() {
             return sprintf( '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
                 mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff ),
@@ -142,7 +155,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($stmt->fetchColumn() == 0) {
             $admin_uuid = gen_uuid();
             $hash = password_hash($admin_pass, PASSWORD_DEFAULT);
-            $stmt = $pdo->prepare("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, 'admin')");
+            // Default Admin is Global (tenant_id NULL)
+            $stmt = $pdo->prepare("INSERT INTO users (id, tenant_id, username, password_hash, role) VALUES (?, NULL, ?, ?, 'admin')");
             $stmt->execute([$admin_uuid, $admin_user, $hash]);
         }
 
@@ -158,6 +172,11 @@ try {
     \$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     \$pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
     \$pdo->exec(\"SET NAMES 'utf8mb4'\");
+
+    // Initialize Tenant Manager
+    require_once __DIR__ . '/../src/TenantManager.php';
+    TenantManager::init(\$pdo);
+
 } catch (PDOException \$e) {
     die(\"Error de conexión: \" . \$e->getMessage());
 }

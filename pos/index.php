@@ -20,12 +20,43 @@ if (!$branch) die("Error: Sucursal no identificada.");
 // Check POS License
 $is_pos_licensed = (!$branch['license_pos_expiry'] || $branch['license_pos_expiry'] >= date('Y-m-d'));
 if (!$is_pos_licensed) {
-    die("<h1>Módulo POS Vencido</h1>Contacte al administrador.");
+    // Mostrar pantalla de licencia vencida con opción de cerrar sesión
+    ?>
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Licencia Vencida - SpacePark</title>
+        <link href="../assets/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+        <link rel="stylesheet" href="../assets/vendor/bootstrap-icons/font/bootstrap-icons.css">
+        <style>
+            body { background: #f4f6f9; font-family: 'Segoe UI', sans-serif; height: 100vh; display: flex; align-items: center; justify-content: center; }
+            .license-expired-card { background: white; padding: 3rem; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); text-align: center; max-width: 450px; }
+            .license-expired-card h1 { color: #dc3545; font-size: 2.5rem; margin-bottom: 1rem; }
+            .license-expired-card p { color: #6c757d; margin-bottom: 2rem; }
+            .btn-logout { background: #6c757d; color: white; border: none; padding: 12px 30px; border-radius: 25px; font-weight: bold; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+            .btn-logout:hover { background: #5a6268; color: white; }
+        </style>
+    </head>
+    <body>
+        <div class="license-expired-card">
+            <i class="bi bi-exclamation-triangle-fill text-danger" style="font-size: 4rem;"></i>
+            <h1>Licencia Vencida</h1>
+            <p>El módulo POS de su sucursal ha expirado.<br>Contacte al administrador para renovar la licencia.</p>
+            <a href="../logout.php" class="btn btn-logout"><i class="bi bi-box-arrow-right"></i> Cerrar Sesión</a>
+        </div>
+    </body>
+    </html>
+    <?php
+    exit;
 }
 
 // MP Config
 $mp_active = ($branch['mp_status'] == 1 && $branch['license_mp_expiry'] >= date('Y-m-d'));
 $pos_title = $branch['pos_title'] ?? 'SpacePark POS';
+$mp_collector_id = $branch['mp_collector_id'] ?? '';
+$mp_country = 'MLA'; // Argentina por defecto
 
 // --- LOGIC: CART & CHECKOUT ---
 $error = '';
@@ -78,11 +109,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $db->beginTransaction();
                     $total_txn = 0;
+
+                    $insertSaleStmt = $db->prepare("INSERT INTO sales (id, user_id, branch_id, machine_id, amount, payment_method, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                    $insertQueueStmt = $db->prepare("INSERT INTO sync_queue (resource_type, resource_uuid, payload, attempts, next_attempt, created_at) VALUES ('sale', ?, ?, 0, " . \Database::nowSql() . ", " . \Database::nowSql() . ")");
+
                     foreach ($cart as $item) {
-                        $stmt = $db->prepare("INSERT INTO sales (id, user_id, branch_id, machine_id, amount, payment_method) VALUES (?, ?, ?, ?, ?, ?)");
-                        $stmt->execute([Uuid::generate(), $currentUser['id'], $branch_id, $item['id'], $item['total'], $method]);
+                        $saleId = Uuid::generate();
+                        $createdAt = date('Y-m-d H:i:s');
+
+                        $insertSaleStmt->execute([$saleId, $currentUser['id'], $branch_id, $item['id'], $item['total'], $method, $createdAt]);
+
+                        $payload = json_encode([
+                            'id' => $saleId,
+                            'user_id' => $currentUser['id'],
+                            'branch_id' => $branch_id,
+                            'machine_id' => $item['id'],
+                            'amount' => $item['total'],
+                            'payment_method' => $method,
+                            'created_at' => $createdAt
+                        ]);
+
+                        $insertQueueStmt->execute([$saleId, $payload]);
+
                         $total_txn += $item['total'];
                     }
+
                     $db->commit();
                     $_SESSION['last_total'] = $total_txn;
                     $_SESSION['last_paid'] = ($method === 'qr') ? $total_txn : $amount_paid;
@@ -528,8 +579,35 @@ if ($show_success) { unset($_SESSION['last_total']); unset($_SESSION['last_paid'
         const cashModal = new bootstrap.Modal(document.getElementById('cashModal'));
         const qrModal = new bootstrap.Modal(document.getElementById('qrModal'));
 
-        // QR
-        new QRCode(document.getElementById("qr-code-container"), { text: "SpaceParkPlay", width: 160, height: 160 });
+        // QR Generation for Mercado Pago
+        function generateMPQR(amount, collectorId) {
+            if (!collectorId) {
+                // If no collector ID, show error
+                return "SIN_CONFIGURACION_MP";
+            }
+            // Generate Mercado Pago payment URL
+            // Format: https://api.mercadopago.com/sites/MLA/publications/{external_reference}/payments?payment_method=account_money&amount={amount}
+            const externalRef = "SP" + Date.now();
+            const country = "MLA"; // Argentina
+            return `https://api.mercadopago.com/sites/${country}/publications/${externalRef}/payments?payment_method=account_money&amount=${amount}&collector_id=${collectorId}`;
+        }
+
+        // Initialize QR with current total
+        const mpCollectorId = "<?= htmlspecialchars($mp_collector_id) ?>";
+        const qrUrl = generateMPQR(boxTotal, mpCollectorId);
+        
+        // Clear previous QR and generate new one
+        document.getElementById("qr-code-container").innerHTML = "";
+        if (qrUrl !== "SIN_CONFIGURACION_MP") {
+            new QRCode(document.getElementById("qr-code-container"), { 
+                text: qrUrl, 
+                width: 200, 
+                height: 200,
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        } else {
+            document.getElementById("qr-code-container").innerHTML = '<div class="text-danger text-center p-3"><i class="bi bi-exclamation-triangle"></i><br>Configure el Collector ID en Mercado Pago</div>';
+        }
 
         // Map Products
         const productsMap = {};
@@ -613,7 +691,22 @@ if ($show_success) { unset($_SESSION['last_total']); unset($_SESSION['last_paid'
                 cashModal.show();
                 setTimeout(() => document.getElementById('cashInput').focus(), 500);
             }
-            if(type === 'qr') qrModal.show();
+            if(type === 'qr') {
+                // Refresh QR with current total
+                const newQrUrl = generateMPQR(boxTotal, mpCollectorId);
+                document.getElementById("qr-code-container").innerHTML = "";
+                if (newQrUrl !== "SIN_CONFIGURACION_MP") {
+                    new QRCode(document.getElementById("qr-code-container"), { 
+                        text: newQrUrl, 
+                        width: 200, 
+                        height: 200,
+                        correctLevel: QRCode.CorrectLevel.M
+                    });
+                } else {
+                    document.getElementById("qr-code-container").innerHTML = '<div class="text-danger text-center p-3"><i class="bi bi-exclamation-triangle"></i><br>Configure el Collector ID</div>';
+                }
+                qrModal.show();
+            }
         }
 
         // Cash Change Calc
