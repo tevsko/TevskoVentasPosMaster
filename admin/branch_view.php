@@ -49,10 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     elseif ($action === 'save_mp') {
         $mp_token = $_POST['mp_token'] ?? '';
+        $mp_collector_id = $_POST['mp_collector_id'] ?? '';
         $mp_status = $_POST['mp_status'] ?? 0;
         try {
-            $stmt = $db->prepare("UPDATE branches SET mp_token=?, mp_status=? WHERE id=?");
-            $stmt->execute([$mp_token, $mp_status, $branchId]);
+            $stmt = $db->prepare("UPDATE branches SET mp_token=?, mp_collector_id=?, mp_status=? WHERE id=?");
+            $stmt->execute([$mp_token, $mp_collector_id, $mp_status, $branchId]);
             $message = "Configuración Mercado Pago actualizada.";
         } catch (PDOException $e) { $error = "Error: " . $e->getMessage(); }
     }
@@ -136,9 +137,18 @@ function licBadge($status, $date) {
 }
 
 // Stats
-$stmt = $db->prepare("SELECT SUM(amount) FROM sales WHERE branch_id = ? AND DATE(created_at) = CURDATE()");
-$stmt->execute([$branchId]);
-$salesToday = $stmt->fetchColumn() ?: 0;
+$driver = \Database::getInstance()->getDriver();
+if ($driver === 'sqlite') {
+    $start = date('Y-m-d 00:00:00');
+    $end = date('Y-m-d 23:59:59');
+    $stmt = $db->prepare("SELECT SUM(amount) FROM sales WHERE branch_id = ? AND created_at BETWEEN :start AND :end");
+    $stmt->execute([$branchId, ':start' => $start, ':end' => $end]);
+    $salesToday = $stmt->fetchColumn() ?: 0;
+} else {
+    $stmt = $db->prepare("SELECT SUM(amount) FROM sales WHERE branch_id = ? AND DATE(created_at) = CURDATE()");
+    $stmt->execute([$branchId]);
+    $salesToday = $stmt->fetchColumn() ?: 0;
+}
 $stmt = $db->prepare("SELECT COUNT(*) FROM machines WHERE branch_id = ? AND active = 1");
 $stmt->execute([$branchId]);
 $activeMachines = $stmt->fetchColumn();
@@ -360,9 +370,14 @@ $recentSales = $stmt->fetchAll();
                         <div class="col-md-8">
                             <label class="form-label">Access Token</label>
                             <div class="input-group">
-                                <input type="text" name="mp_token" class="form-control" value="<?= htmlspecialchars($branch['mp_token'] ?? '') ?>">
+                                <input type="text" name="mp_token" class="form-control" value="<?= htmlspecialchars($branch['mp_token'] ?? '') ?>" placeholder="APP_USR-xxxxxxxx-xxxx...">
                                 <button type="submit" name="action" value="test_mp" class="btn btn-outline-info">Probar</button>
                             </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Collector ID (ID de Cuenta de Mercado Pago)</label>
+                            <input type="text" name="mp_collector_id" class="form-control" value="<?= htmlspecialchars($branch['mp_collector_id'] ?? '') ?>" placeholder="Ej: 123456789">
+                            <small class="text-muted">Se obtiene desde la URL de tu cuenta de Mercado Pago o configurando QR estático</small>
                         </div>
                     </div>
                     <div class="mt-4 text-end"><button type="submit" class="btn btn-primary">Guardar Cambios</button></div>

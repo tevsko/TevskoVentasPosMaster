@@ -7,8 +7,18 @@ $db = Database::getInstance()->getConnection();
 // --- ESTADISTICAS RAPIDAS ---
 
 // Total Ventas Hoy
-$stmt = $db->query("SELECT SUM(amount) FROM sales WHERE DATE(created_at) = CURDATE()");
-$salesToday = $stmt->fetchColumn() ?: 0;
+$driver = \Database::getInstance()->getDriver();
+if ($driver === 'sqlite') {
+    // SQLite: use explicit timestamp range for today
+    $start = date('Y-m-d 00:00:00');
+    $end = date('Y-m-d 23:59:59');
+    $stmt = $db->prepare("SELECT SUM(amount) FROM sales WHERE created_at BETWEEN :start AND :end");
+    $stmt->execute([':start' => $start, ':end' => $end]);
+    $salesToday = $stmt->fetchColumn() ?: 0;
+} else {
+    $stmt = $db->query("SELECT SUM(amount) FROM sales WHERE DATE(created_at) = CURDATE()");
+    $salesToday = $stmt->fetchColumn() ?: 0;
+}
 
 // Sucursales Activas
 $stmt = $db->query("SELECT COUNT(*) FROM branches WHERE status = 1");
@@ -25,12 +35,14 @@ $activeMachines = $stmt->fetchColumn();
 // --- MONITOREO ---
 
 // Usuarios en Línea (Activos en los últimos 10 minutos)
-$stmt = $db->query("
-    SELECT id, username, role, last_activity, branch_id 
-    FROM users 
-    WHERE last_activity >= NOW() - INTERVAL 10 MINUTE 
-    ORDER BY last_activity DESC
-");
+$driver = \Database::getInstance()->getDriver();
+if ($driver === 'sqlite') {
+    $cutoff = date('Y-m-d H:i:s', time() - 10 * 60);
+    $stmt = $db->prepare("SELECT id, username, role, last_activity, branch_id FROM users WHERE last_activity >= :cutoff ORDER BY last_activity DESC");
+    $stmt->execute([':cutoff' => $cutoff]);
+} else {
+    $stmt = $db->query("SELECT id, username, role, last_activity, branch_id FROM users WHERE last_activity >= NOW() - INTERVAL 10 MINUTE ORDER BY last_activity DESC");
+}
 $onlineUsers = $stmt->fetchAll();
 
 ?>

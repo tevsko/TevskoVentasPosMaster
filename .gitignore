@@ -1,0 +1,25 @@
+# Runtime data and logs
+/data/
+/logs/
+/*.sqlite
+
+# Build and packaging outputs
+/out/
+/packaging/out/
+/packaging/build/
+
+# IDE, OS
+.vscode/
+*.log
+*.tmp
+Thumbs.db
+.DS_Store
+
+# PHPDesktop runtime (do not commit large runtime files)
+/phpdesktop/
+
+# Composer
+vendor/
+
+# Node
+node_modules/

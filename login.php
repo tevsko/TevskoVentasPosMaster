@@ -129,7 +129,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <div class="mb-4">
                 <label class="form-label ms-2 text-muted small">Contraseña</label>
-                <input type="password" name="password" class="form-control" placeholder="Ingrese su contraseña" required>
+                <div class="position-relative">
+                    <input type="password" name="password" id="passwordInput" class="form-control" placeholder="Ingrese su contraseña" required>
+                    <button type="button" class="btn btn-link position-absolute end-0 top-50 translate-middle-y text-muted p-0 me-2" onclick="togglePassword()" style="text-decoration: none;">
+                        <i class="bi bi-eye" id="passwordToggle"></i>
+                    </button>
+                </div>
             </div>
             <button type="submit" class="btn btn-primary btn-login">INGRESAR</button>
         </form>
@@ -138,5 +143,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
              <small class="text-muted">¿Olvido su contraseña? Contacte al Admin</small>
         </div>
     </div>
+
+    <script>
+        function togglePassword() {
+            const passwordInput = document.getElementById('passwordInput');
+            const passwordToggle = document.getElementById('passwordToggle');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                passwordToggle.classList.remove('bi-eye');
+                passwordToggle.classList.add('bi-eye-slash');
+            } else {
+                passwordInput.type = 'password';
+                passwordToggle.classList.remove('bi-eye-slash');
+                passwordToggle.classList.add('bi-eye');
+            }
+        }
+    </script>
 </body>
 </html>
