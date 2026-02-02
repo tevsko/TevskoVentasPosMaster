@@ -707,7 +707,7 @@ if ($show_success) { unset($_SESSION['last_total']); unset($_SESSION['last_paid'
                 }
                 qrModal.show();
             }
-        }
+la opcion 1          }
 
         // Cash Change Calc
         document.getElementById('cashInput').addEventListener('input', function() {
