@@ -1,5 +1,9 @@
 <?php
 // login.php
+// CRITICAL: Load error handler FIRST
+require_once __DIR__ . '/bootstrap_error_handler.php';
+
+require_once 'config/db.php'; // IMPORTANTE: Cargar configuración antes que nada
 require_once 'src/Auth.php';
 
 $auth = new Auth();
@@ -14,29 +18,64 @@ if ($auth->isAuthenticated()) {
     exit;
 }
 
-$error = '';
-// Fetch Branches for Selector
-require_once 'config/db.php';
-$stmt = $pdo->query("SELECT id, name FROM branches WHERE status = 1 ORDER BY name ASC");
-$branches = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$db = Database::getInstance()->getConnection();
+$driver = Database::getInstance()->getDriver();
+$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$currentTenantId = null;
 
+if ($driver !== 'sqlite') {
+    // MySQL (Cloud) logic: identify tenant
+    $tenantQuery = $_GET['tenant'] ?? $_SESSION['current_tenant_name'] ?? null;
+    $hostPart = explode('.', $host)[0];
+    
+    if ($tenantQuery) {
+        $stmtTenant = $db->prepare("SELECT id, subdomain FROM tenants WHERE subdomain = ?");
+        $stmtTenant->execute([$tenantQuery]);
+        $tenantData = $stmtTenant->fetch(PDO::FETCH_ASSOC);
+        if ($tenantData) {
+            $currentTenantId = $tenantData['id'];
+            $_SESSION['current_tenant_name'] = $tenantData['subdomain'];
+        }
+    } 
+    
+    if (!$currentTenantId && $hostPart !== 'www' && $hostPart !== 'tevsko') {
+        $stmtTenant = $db->prepare("SELECT id, subdomain FROM tenants WHERE subdomain = ? OR ? LIKE CONCAT(subdomain, '.%')");
+        $stmtTenant->execute([$hostPart, $host]);
+        $tenantData = $stmtTenant->fetch(PDO::FETCH_ASSOC);
+        if ($tenantData) {
+            $currentTenantId = $tenantData['id'];
+            $_SESSION['current_tenant_name'] = $tenantData['subdomain'];
+        }
+    }
+} else {
+    // SQLite (Local) logic: usually single tenant
+    try {
+        $currentTenantId = $db->query("SELECT id FROM tenants LIMIT 1")->fetchColumn();
+    } catch (Exception $e) { }
+}
+
+$error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'] ?? '';
     $password = $_POST['password'] ?? '';
-
-    require_once 'config/db.php'; // Access to $pdo needed to fetch branches? Or use Auth's connection?
-    // Auth has DB connection but it's private. Best to query branches via a new connection or add getBranches to Auth.
-    // Simpler: Just rely on Auth having a helper or quick query here.
-    // Let's add a quick query here using the db config directly since Auth logic is separate.
     
-    $branch_id = $_POST['branch_id'] ?? '';
-    $loginResult = $auth->login($username, $password, $branch_id);
+    $loginResult = $auth->login($username, $password, $currentTenantId);
 
     if ($loginResult === true) {
         if ($auth->isAdmin()) {
-            header('Location: admin/dashboard.php');
+            if (!headers_sent()) {
+                header('Location: admin/dashboard.php');
+            } else {
+                echo "<script>window.location.href='admin/dashboard.php';</script>";
+            }
+
         } else {
-            header('Location: pos/index.php');
+            if (!headers_sent()) {
+                header('Location: pos/index.php');
+            } else {
+                echo "<script>window.location.href='pos/index.php';</script>";
+            }
+
         }
         exit;
     } elseif ($loginResult === 'license_expired') {
@@ -56,6 +95,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <title>Login - SpacePark</title>
     <!-- Bootstrap CSS Local o CDN -->
     <link href="assets/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="icon" type="image/png" href="assets/img/favicon_astronaut.png">
+    <link rel="stylesheet" href="assets/vendor/bootstrap-icons/font/bootstrap-icons.css">
     <style>
         body {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
@@ -112,17 +153,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <form method="POST">
-             <div class="mb-3">
-                <label class="form-label ms-2 text-muted small">Sucursal</label>
-                <select name="branch_id" class="form-select" style="border-radius: 25px; padding: 10px 20px;">
-                    <option value="">Administración / Global</option>
-                    <?php foreach ($branches as $branch): ?>
-                        <option value="<?= htmlspecialchars($branch['id']) ?>">
-                            <?= htmlspecialchars($branch['name']) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
             <div class="mb-3">
                 <label class="form-label ms-2 text-muted small">Usuario</label>
                 <input type="text" name="username" class="form-control" placeholder="Ingrese su usuario" required autofocus>
@@ -141,6 +171,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         <div class="text-center mt-3">
              <small class="text-muted">¿Olvido su contraseña? Contacte al Admin</small>
+             <?php if (!file_exists('landing.php')): ?>
+             <div class="mt-2">
+                 <a href="setup_client.php" class="text-decoration-none small text-primary">
+                    <i class="bi bi-gear"></i> Configurar Sincronización
+                 </a>
+             </div>
+             <?php endif; ?>
         </div>
     </div>
 

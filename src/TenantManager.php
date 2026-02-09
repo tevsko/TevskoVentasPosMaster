@@ -8,25 +8,44 @@ class TenantManager {
     public static function init($pdo) {
         $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
         
-        // Remove port number if present
-        $hostPart = explode(':', $host)[0];
+        // 1. Detección por parámetro (GET/POST/JSON)
+        $subdomain = $_GET['tenant'] ?? $_POST['tenant'] ?? null;
         
-        // Basic subdomain extraction logic
-        // Assumes format: subdomain.domain.com or subdomain.localhost
-        // You might need to adjust this based on your actual domain structure (e.g. how many parts the root domain has)
-        
-        // For development like 'nike.localhost', parts are ['nike', 'localhost']
-        // For production 'nike.spacepark.com', parts are ['nike', 'spacepark', 'com']
-        
-        $parts = explode('.', $hostPart);
-        $subdomain = null;
+        if (!$subdomain) {
+            // Check JSON input
+            $rawInput = file_get_contents('php://input');
+            $input = json_decode($rawInput, true);
+            if (isset($input['tenant'])) {
+                $subdomain = $input['tenant'];
+            }
+        }
 
-        if (count($parts) > 2) {
-            // Case: nike.spacepark.com -> subdomain 'nike'
-            $subdomain = $parts[0];
-        } else if (count($parts) == 2 && $parts[1] === 'localhost') {
-             // Case: nike.localhost -> subdomain 'nike'
-             $subdomain = $parts[0];
+        if (!$subdomain) {
+            // 2. Detección por Host (Subdominio)
+            $hostPart = explode(':', $host)[0];
+            $parts = explode('.', $hostPart);
+            
+            if (count($parts) > 2) {
+                // Case: nike.spacepark.com -> subdomain 'nike'
+                $subdomain = $parts[0];
+            } else if (count($parts) == 2 && $parts[1] === 'localhost') {
+                 // Case: nike.localhost -> subdomain 'nike'
+                 $subdomain = $parts[0];
+            }
+        }
+
+        if (!$subdomain) {
+            // 3. Detección por Referer (Útil para PWA en dominio principal)
+            $referer = $_SERVER['HTTP_REFERER'] ?? '';
+            if ($referer && strpos($referer, 'tenant=') !== false) {
+                $query = parse_url($referer, PHP_URL_QUERY);
+                if ($query) {
+                    parse_str($query, $refParams);
+                    if (isset($refParams['tenant'])) {
+                        $subdomain = $refParams['tenant'];
+                    }
+                }
+            }
         }
 
         // Check for 'www' or no subdomain -> Global Master

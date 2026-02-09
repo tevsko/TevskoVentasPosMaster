@@ -81,11 +81,19 @@
             return;
         }
 
+        var urlParams = new URLSearchParams(window.location.search);
+        var tenant = urlParams.get('tenant');
+
         try {
             var res = await fetch(API_AUTH, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'login', username: username, password: password })
+                body: JSON.stringify({
+                    action: 'login',
+                    username: username,
+                    password: password,
+                    tenant: tenant
+                })
             });
             var data = await res.json();
 
