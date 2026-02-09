@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1e3a8a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>SpacePark Ventas - Reporte</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/mobile/manifest.json">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/mobile/img/astronaut.png">
+    <link rel="apple-touch-icon" href="/mobile/img/astronaut.png">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/mobile/css/mobile.css">
+</head>
+
+<body>
+    <!-- Header -->
+    <div class="header">
+        <h1 id="location-name">Cargando...</h1>
+        <p id="employee-name">-</p>
+        <div id="connection-status" class="status-badge online">En línea</div>
+    </div>
+
+    <div class="container">
+        <!-- Alert Messages -->
+        <div id="alert-container"></div>
+
+        <!-- Fecha del Reporte -->
+        <div class="card">
+            <div class="form-group">
+                <label class="form-label" for="report-date">Fecha del Reporte</label>
+                <input type="date" id="report-date" class="form-input" required>
+            </div>
+            <button type="button" class="btn btn-secondary" onclick="window.spMobile.logout()">
+                Cerrar Sesión
+            </button>
+        </div>
+
+        <!-- Productos Vendidos -->
+        <div class="card">
+            <h2 class="card-title">Productos Vendidos</h2>
+            <div id="products-container">
+                <p style="color: #9ca3af; text-align: center;">Cargando productos...</p>
+            </div>
+            <div class="summary-row total">
+                <span>Total Ventas:</span>
+                <span class="summary-value" id="total-sales">$0.00</span>
+            </div>
+        </div>
+
+        <!-- Pagos Recibidos -->
+        <div class="card">
+            <h2 class="card-title">Pagos Recibidos</h2>
+
+            <div class="form-group">
+                <label class="form-label" for="cash-received">Efectivo</label>
+                <input type="number" id="cash-received" class="form-input" inputmode="numeric" step="0.01" min="0"
+                    value="0" placeholder="0.00">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="mercadopago-received">Mercado Pago</label>
+                <input type="number" id="mercadopago-received" class="form-input" inputmode="numeric" step="0.01"
+                    min="0" value="0" placeholder="0.00">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="transfer-received">Transferencia</label>
+                <input type="number" id="transfer-received" class="form-input" inputmode="numeric" step="0.01" min="0"
+                    value="0" placeholder="0.00">
+            </div>
+
+            <div class="summary-row total">
+                <span>Total Pagos:</span>
+                <span class="summary-value" id="total-payments">$0.00</span>
+            </div>
+        </div>
+
+        <!-- Gastos -->
+        <div class="card">
+            <h2 class="card-title">Gastos del Día</h2>
+
+            <div id="expenses-container">
+                <!-- Los gastos se agregarán dinámicamente -->
+            </div>
+
+            <button type="button" class="btn btn-outline mb-2" onclick="addExpense()">
+                + Agregar Gasto
+            </button>
+
+            <div class="summary-row total">
+                <span>Total Gastos:</span>
+                <span class="summary-value" id="total-expenses">$0.00</span>
+            </div>
+        </div>
+
+        <!-- Empleado -->
+        <div class="card">
+            <h2 class="card-title">Retiro de Sueldo</h2>
+            <div class="form-group">
+                <label class="form-label" for="employee-salary-input">Monto Retirado ($)</label>
+                <input type="number" id="employee-salary-input" class="form-input" inputmode="numeric" step="0.01"
+                    min="0" value="0" placeholder="0.00">
+                <small style="color: #6b7280; margin-top: 5px; display: block;">
+                    Tu sueldo diario es: <span id="salary-amount">$0.00</span>
+                </small>
+            </div>
+        </div>
+
+        <!-- Resumen Final -->
+        <div class="card">
+            <h2 class="card-title">Resumen</h2>
+
+            <div class="summary-box">
+                <div class="summary-row">
+                    <span>Total Ventas:</span>
+                    <span class="summary-value" id="summary-sales">$0.00</span>
+                </div>
+                <div class="summary-row">
+                    <span>Total Pagos:</span>
+                    <span class="summary-value" id="summary-payments">$0.00</span>
+                </div>
+                <div class="summary-row">
+                    <span>Total Gastos:</span>
+                    <span class="summary-value" id="summary-expenses">$0.00</span>
+                </div>
+                <div class="summary-row">
+                    <span>Sueldo Empleado:</span>
+                    <span class="summary-value" id="summary-salary">$0.00</span>
+                </div>
+            </div>
+
+            <div id="expected-cash-display" class="expected-cash positive">
+                <div class="expected-cash-label">Caja Esperada</div>
+                <div class="expected-cash-amount" id="expected-cash-amount">$0.00</div>
+            </div>
+        </div>
+
+        <!-- Foto -->
+        <div class="card">
+            <h2 class="card-title">Foto del Reporte</h2>
+
+            <div id="photo-preview" class="hidden" style="margin-bottom: 1rem;">
+                <img id="photo-img" src="" alt="Preview" style="width: 100%; border-radius: 8px;">
+            </div>
+
+            <input type="file" id="photo-input" accept="image/*" capture="environment" style="display: none;">
+
+            <button type="button" class="btn btn-secondary" id="photo-btn" onclick="capturePhoto()">
+                📷 Tomar Foto
+            </button>
+
+            <button type="button" class="btn btn-outline mt-1 hidden" id="change-photo-btn" onclick="capturePhoto()">
+                Cambiar Foto
+            </button>
+        </div>
+
+        <!-- Botón Enviar -->
+        <div class="card">
+            <button type="button" class="btn btn-success" id="submit-btn" onclick="submitReport()">
+                Enviar Reporte
+            </button>
+        </div>
+
+        <!-- Espacio inferior -->
+        <div style="height: 2rem;"></div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        // Catch early errors even before files load
+        window.onerror = function (m, u, l) {
+            console.error("Early error:", m, l);
+            var h = document.getElementById('location-name');
+            if (h) h.textContent = "Error de Carga";
+            return false;
+        };
+    </script>
+    <script src="/mobile/js/auth.js?v=1.8"></script>
+    <script src="/mobile/js/offline.js?v=1.8"></script>
+    <script src="/mobile/js/sync.js?v=1.8"></script>
+    <script src="/mobile/js/app.js?v=1.8"></script>
+</body>
+
+</html>
