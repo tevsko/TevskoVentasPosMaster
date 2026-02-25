@@ -1,0 +1,33 @@
+# === VERSION DEPURACION PARA ERROR 500 ===
+# Si esto funciona, el problema estaba en mod_headers o mod_deflate
+
+# 1. Deshabilitar listado de directorios (A veces esto causa error en hostings estrictos, si falla, comentar con #)
+# Options -Indexes
+
+# 2. Protección básica
+<FilesMatch "(\.env|\.git|\.gitignore|\.md|\.ps1|\.bat)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# 3. Reesritura de URLs (Fundamental para la seguridad interna)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^config/ - [F,L]
+    RewriteRule ^src/ - [F,L]
+    RewriteRule ^instalacion_optional/ - [F,L]
+</IfModule>
+
+# Módulos Opcionales COMENTADOS (Para probar si eran la causa del error)
+# <IfModule mod_headers.c>
+#     Header always append X-Frame-Options SAMEORIGIN
+#     Header set X-XSS-Protection "1; mode=block"
+#     Header set X-Content-Type-Options nosniff
+# </IfModule>
+
+# <IfModule mod_deflate.c>
+#     AddOutputFilterByType DEFLATE text/plain
+#     AddOutputFilterByType DEFLATE text/html
+#     AddOutputFilterByType DEFLATE text/css
+#     AddOutputFilterByType DEFLATE application/javascript
+# </IfModule>

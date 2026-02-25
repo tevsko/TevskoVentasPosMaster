@@ -19,8 +19,8 @@ if not exist "%APPDIR%logs" mkdir "%APPDIR%logs"
 REM Initialize SQLite schema
 "%PHP%" "%APPDIR%scripts\init_sqlite.php"
 
-REM Register scheduled tasks (run as SYSTEM)
-schtasks /Create /SC MINUTE /MO 1 /TN "SpacePark Sync Worker" /TR "\"%PHP%\" \"%APPDIR%sync_worker.php\"" /RU "SYSTEM" /RL HIGHEST /F
+REM Register scheduled tasks (run as SYSTEM) via hidden VBS
+schtasks /Create /SC MINUTE /MO 1 /TN "SpacePark Sync Worker" /TR "wscript.exe \"%APPDIR%scripts\run_sync_hidden.vbs\"" /RU "SYSTEM" /RL HIGHEST /F
 schtasks /Create /SC HOURLY /MO 1 /TN "SpacePark Email Worker" /TR "\"%PHP%\" \"%APPDIR%email_worker.php\"" /RU "SYSTEM" /RL HIGHEST /F
 
 :end

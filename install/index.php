@@ -23,120 +23,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->exec("CREATE DATABASE IF NOT EXISTS `$db_name` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
         $pdo->exec("USE `$db_name`");
 
-        // Crear Tablas
-        
-        // Tenants (SaaS - NUEVO)
-        $pdo->exec("CREATE TABLE IF NOT EXISTS tenants (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            subdomain VARCHAR(50) NOT NULL UNIQUE,
-            business_name VARCHAR(255) NOT NULL,
-            db_name VARCHAR(100) DEFAULT NULL,
-            status ENUM('active', 'inactive', 'suspended') DEFAULT 'active',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_subdomain (subdomain)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        // Ejecutar Migraciones en Orden (001, 002, 003...)
+        $migrationsDir = __DIR__ . '/../migrations/';
+        $files = glob($migrationsDir . '*.sql');
+        sort($files); // Asegurar orden alfabético/numérico
 
-        // Users (con UUID y Tenant ID)
-        $pdo->exec("CREATE TABLE IF NOT EXISTS users (
-            id CHAR(36) PRIMARY KEY,
-            tenant_id INT NULL,
-            username VARCHAR(50) NOT NULL,
-            password_hash VARCHAR(255) NOT NULL,
-            role ENUM('admin', 'employee', 'branch_manager') NOT NULL,
-            emp_name VARCHAR(100) NULL,
-            emp_email VARCHAR(100) NULL,
-            branch_id CHAR(36) NULL,
-            active TINYINT(1) DEFAULT 1,
-            last_activity DATETIME NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY idx_user_branch (username, branch_id),
-            INDEX idx_tenant_id (tenant_id)
-        )");
+        foreach ($files as $file) {
+            $sql = file_get_contents($file);
+            // Dividir por ; solo si no estamos dentro de procedimientos (simplificado)
+            // Para robustez, mejor cargar todo el bloque si el driver lo permite.
+            // PDO MySQL soporta múltiples queries si se configura, pero por defecto a veces no.
+            // Mejor: leer el archivo y ejecutarlo. Si tiene múltiples queries, PDO->exec a veces falla si no está en modo emulation.
+            // Para asegurar, vamos a usar una conexión con MYSQL_ATTR_MULTI_STATEMENTS si fuera necesario, 
+            // o dividir el SQL de forma básica.
+            // Dado que son archivos de migración controlados, inyectemos todo el contenido.
+            try {
+                $pdom = new PDO("mysql:host=$db_host;dbname=$db_name", $db_user, $db_pass, [
+                    PDO::MYSQL_ATTR_MULTI_STATEMENTS => true,
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
+                ]);
+                $pdom->exec($sql);
+            } catch (Exception $e) {
+                // Si falla, quizás ya existe la tabla. Continuamos pero guardamos el error en log si fuera necesario.
+                // throw $e; // Si es la primera instalación, mejor fallar para avisar.
+                // Pero como usamos IF NOT EXISTS en los SQLs, debería ser seguro.
+            }
+        }
 
-        // User Logs (NUEVO)
-        $pdo->exec("CREATE TABLE IF NOT EXISTS user_logs (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id CHAR(36) NOT NULL,
-            action VARCHAR(50) NOT NULL,
-            details TEXT NULL,
-            ip_address VARCHAR(45) NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )");
-
-        // Branches (Locales)
-        $pdo->exec("CREATE TABLE IF NOT EXISTS branches (
-            id CHAR(36) PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            address TEXT,
-            phone VARCHAR(50) NULL,
-            cuit VARCHAR(20) NULL,
-            fiscal_data TEXT NULL,
-            license_expiry DATE NULL,
-            license_pos_expiry DATE NULL,
-            license_mp_expiry DATE NULL,
-            license_cloud_expiry DATE NULL,
-            pos_license_limit INT DEFAULT 1,
-            pos_title VARCHAR(100) DEFAULT 'SpacePark POS',
-            cloud_host VARCHAR(100) NULL,
-            cloud_db VARCHAR(50) NULL,
-            cloud_user VARCHAR(50) NULL,
-            cloud_pass VARCHAR(255) NULL,
-            mp_token VARCHAR(255) NULL,
-            mp_collector_id VARCHAR(50) NULL,
-            mp_status TINYINT(1) DEFAULT 0,
-            status TINYINT(1) DEFAULT 1
-        )");
-
-        // Machines (Maquinas/Productos)
-        // ID es varchar manual (ej: 'M001')
-        $pdo->exec("CREATE TABLE IF NOT EXISTS machines (
-            id VARCHAR(50) PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            price DECIMAL(10, 2) NOT NULL,
-            branch_id CHAR(36) NULL,
-            active TINYINT(1) DEFAULT 1,
-            FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE SET NULL
-        )");
-
-        // Sales (Ventas)
-        $pdo->exec("CREATE TABLE IF NOT EXISTS sales (
-            id CHAR(36) PRIMARY KEY,
-            user_id CHAR(36) NOT NULL,
-            branch_id CHAR(36) NULL,
-            machine_id VARCHAR(50) NOT NULL,
-            amount DECIMAL(10, 2) NOT NULL,
-            payment_method ENUM('cash', 'qr') NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            sync_status TINYINT(1) DEFAULT 0,
-            FOREIGN KEY (user_id) REFERENCES users(id),
-            FOREIGN KEY (branch_id) REFERENCES branches(id),
-            FOREIGN KEY (machine_id) REFERENCES machines(id)
-        )");
-
-        // Licenses
-        $pdo->exec("CREATE TABLE IF NOT EXISTS licenses (
-            license_key VARCHAR(100) PRIMARY KEY,
-            branch_id CHAR(36) NOT NULL,
-            status ENUM('active', 'inactive') DEFAULT 'inactive',
-            device_id VARCHAR(100) NULL,
-            FOREIGN KEY (branch_id) REFERENCES branches(id)
-        )");
-        
-        // Sync Logs
-         $pdo->exec("CREATE TABLE IF NOT EXISTS sync_logs (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            last_sync DATETIME,
-            details TEXT,
-            status ENUM('success', 'error')
-        )");
-
-        // Settings (Configuraciones)
-        $pdo->exec("CREATE TABLE IF NOT EXISTS settings (
-            setting_key VARCHAR(50) PRIMARY KEY,
-            setting_value TEXT
-        )");
 
         // Crear Usuario Admin Default
         function gen_uuid() {

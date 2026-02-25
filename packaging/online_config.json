@@ -1,0 +1,10 @@
+{
+    "version": "1.0.0",
+    "download_url": "https://tevsko.com.ar/downloads/",
+    "phpdesktop_file": "phpdesktop.zip",
+    "manifest_file": "manifest.json",
+    "version_check": "version.txt",
+    "installer_offline": "SpaceParkInstaller-1.0.0-Offline.exe",
+    "installer_online": "SpaceParkInstaller-1.0.0-Online.exe",
+    "notes": "Cambiar 'tuservidor.com' por tu dominio real antes de compilar"
+}

@@ -73,4 +73,8 @@ Aplicación PWA para el personal operativo.
 
 ---
 
+## 🚀 Expansiones Futuras
+- **[Sistema de Tarjetas RFID (ESP32)](docs/arcade_cards_expansion.md)**: Guía completa para implementar tarjetas de proximidad y control automático de máquinas.
+
+---
 © 2026 SpacePark - Tevsko Ventas POS Master.

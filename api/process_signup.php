@@ -22,34 +22,12 @@ $business_name = $_POST['business_name'];
 $username = $_POST['username'];
 $email = $_POST['email'];
 $password = $_POST['password'];
-$subdomain = $_POST['subdomain'] ?? '';
+$subdomain = isset($_POST['subdomain']) ? $_POST['subdomain'] : '';
 
 // Extras
-$addMp = isset($_POST['add_mp']) && $_POST['add_mp'] == 1;
-$addModo = isset($_POST['add_modo']) && $_POST['add_modo'] == 1;
-$extraPos = isset($_POST['extra_pos']) ? (int)$_POST['extra_pos'] : 0;
-if ($extraPos < 0) $extraPos = 0;
-
-// Validaciones
-if (empty($business_name) || empty($username) || empty($password)) die("Faltan datos requeridos.");
-if (!preg_match('/^[a-z0-9-]+$/', $subdomain)) die("Subdominio inválido");
-
-// ... (verificaciones unicidad omitidas para brevedad, no cambian)
-
-// Config (Token SaaS MP necesario siempre que sea la pasarela de cobro del plan)
-$stmt = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'saas_mp_token'");
-$saasToken = $stmt->fetchColumn();
-
-// Plan e Importes
-$stmt = $db->prepare("SELECT * FROM plans WHERE id = ?");
-$stmt->execute([$plan_id]);
-$plan = $stmt->fetch();
-if (!$plan) die("Plan no encontrado");
-
-$totalPrice = (float)$plan['price'];
-$description = "Plan: " . $plan['name'];
-$limitPosTotal = (int)($plan['pos_limit'] ?? 1);
-$modules = []; // Array para guardar módulos comprados
+// ...
+$limitPosTotal = (int)(isset($plan['pos_limit']) ? $plan['pos_limit'] : 1);
+$modules = array(); // Array para guardar módulos comprados
 
 // Sumar MP Fee
 if ($addMp && isset($plan['mp_fee']) && $plan['mp_fee'] > 0) {
@@ -64,9 +42,9 @@ if ($addMp && isset($plan['mp_fee']) && $plan['mp_fee'] > 0) {
 
 // Sumar MODO Fee
 if ($addModo) {
-   $allowModo = $plan['allow_modo_integration'] ?? 0;
+   $allowModo = isset($plan['allow_modo_integration']) ? $plan['allow_modo_integration'] : 0;
    if ($allowModo) {
-       $modoFee = $plan['modo_fee'] ?? 0;
+       $modoFee = isset($plan['modo_fee']) ? $plan['modo_fee'] : 0;
        if ($modoFee > 0) {
            $totalPrice += (float)$modoFee;
            $description .= " + Int. MODO";

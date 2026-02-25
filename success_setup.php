@@ -1,21 +1,22 @@
 <?php
 // success_setup.php
-$domain = $_GET['domain'] ?? '';
-$username = $_GET['user'] ?? '';
-$token = $_GET['token'] ?? '';
-$email = $_GET['email'] ?? '';
-$plan = $_GET['plan'] ?? 'Plan Contratado';
-$period = $_GET['period'] ?? 'monthly';
-$posCount = $_GET['pos_count'] ?? 1;
-$expiry = $_GET['expiry'] ?? date('Y-m-d', strtotime('+1 year'));
-$integrations = $_GET['integrations'] ?? '';
+$domain = isset($_GET['domain']) ? $_GET['domain'] : '';
+$username = isset($_GET['user']) ? $_GET['user'] : '';
+$token = isset($_GET['token']) ? $_GET['token'] : '';
+$email = isset($_GET['email']) ? $_GET['email'] : '';
+$plan = isset($_GET['plan']) ? $_GET['plan'] : 'Plan Contratado';
+$period = isset($_GET['period']) ? $_GET['period'] : 'monthly';
+$posCount = isset($_GET['pos_count']) ? $_GET['pos_count'] : 1;
+$expiry = isset($_GET['expiry']) ? $_GET['expiry'] : date('Y-m-d', strtotime('+1 year'));
+$integrations = isset($_GET['integrations']) ? $_GET['integrations'] : '';
 
 // Formatear período
-$periodText = [
+$periodsList = array(
     'monthly' => 'Mensual',
     'quarterly' => 'Trimestral',
     'annual' => 'Anual'
-][$period] ?? 'Mensual';
+);
+$periodText = isset($periodsList[$period]) ? $periodsList[$period] : 'Mensual';
 
 // Formatear fecha de expiración
 $expiryDate = date('d/m/Y', strtotime($expiry));

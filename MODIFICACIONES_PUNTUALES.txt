@@ -1,0 +1,19 @@
+# IMPLEMENTACIÓN DE PROVISIONAMIENTO CLIENTE
+
+He creado un sistema para que el cliente, al abrirse por primera vez, pida el Token y descargue la configuración automáticamente.
+
+### 1. Archivo a Subir al Servidor (MUY IMPORTANTE)
+Debe subir este archivo nuevo a la carpeta `api/` de su hosting:
+- `api/get_config.php`
+
+### 2. Generar Instalador
+El instalador ahora incluirá `setup_client.php` y la lógica de redirección.
+Ejecute:
+```powershell
+.\build_installer.ps1 -PhpDesktopPath "C:\phpdesktop-chrome-130.1-php-8.3"
+```
+
+### 3. Prueba Final
+Instale el programa. Al abrirlo, en lugar del Login, verá una pantalla de "Bienvenida" pidiendo el Token.
+Ingrese la URL (`http://tevsko.com.ar`) y un Token válido.
+El sistema descargará su usuario Admin y lo dejará entrar.

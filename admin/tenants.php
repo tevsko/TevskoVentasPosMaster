@@ -75,25 +75,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 } 
 
-$tenants = $db->query("SELECT id, subdomain, business_name, sync_token, allowed_host, status, created_at FROM tenants ORDER BY id DESC LIMIT 200")->fetchAll();
+$tenants = [];
+$tenants = [];
+try {
+    $q1 = $db->query("
+        SELECT t.id, t.subdomain, t.business_name, t.sync_token, t.allowed_host, t.status, t.created_at,
+               p.name as plan_name, p.mobile_module_enabled
+        FROM tenants t
+        LEFT JOIN subscriptions s ON t.id = s.tenant_id AND s.status = 'active'
+        LEFT JOIN plans p ON s.plan_id = p.id
+        ORDER BY t.id DESC LIMIT 200
+    ");
+    if ($q1) $tenants = $q1->fetchAll();
+} catch (Exception $e) {
+    try {
+        $q2 = $db->query("
+            SELECT t.id, t.subdomain, t.business_name, t.sync_token, t.allowed_host, t.status, t.created_at,
+                   p.name as plan_name, 0 as mobile_module_enabled
+            FROM tenants t
+            LEFT JOIN subscriptions s ON t.id = s.tenant_id AND s.status = 'active'
+            LEFT JOIN plans p ON s.plan_id = p.id
+            ORDER BY t.id DESC LIMIT 200
+        ");
+        if ($q2) $tenants = $q2->fetchAll();
+    } catch (Exception $e2) {
+        $tenants = $db->query("SELECT id, subdomain, business_name, sync_token, allowed_host, status, created_at, 'Sin Plan' as plan_name, 0 as mobile_module_enabled FROM tenants LIMIT 200")->fetchAll();
+    }
+}
 ?>
 <?php require_once __DIR__ . '/layout_head.php'; ?>
-<div class="container py-4">
+<div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h3>Tenants</h3>
+        <h3><i class="bi bi-people-fill me-2"></i>Tenants (Clientes SaaS)</h3>
     </div>
     <?php if (!empty($message)): ?>
         <div class="alert alert-success"><?= htmlspecialchars($message) ?></div>
     <?php endif; ?>
 
-    <table class="table table-sm">
-        <thead><tr><th>ID</th><th>Subdomain</th><th>Business</th><th>Token</th><th>Allowed Host</th><th>Actions</th></tr></thead>
-        <tbody>
-            <?php foreach ($tenants as $t): ?>
-                <tr>
-                    <td><?= $t['id'] ?></td>
-                    <td><?= htmlspecialchars($t['subdomain']) ?></td>
-                    <td><?= htmlspecialchars($t['business_name']) ?></td>
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>ID</th>
+                            <th>Subdominio / Negocio</th>
+                            <th>Plan / Módulos</th>
+                            <th>Token Sincro</th>
+                            <th>Host Permitido</th>
+                            <th class="text-end">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($tenants as $t): ?>
+                            <tr>
+                                <td><?= $t['id'] ?></td>
+                                <td>
+                                    <strong><?= htmlspecialchars($t['subdomain']) ?></strong><br>
+                                    <small class="text-muted"><?= htmlspecialchars($t['business_name']) ?></small>
+                                </td>
+                                <td>
+                                    <span class="badge bg-primary"><?= htmlspecialchars($t['plan_name'] ?? 'Sin Plan') ?></span><br>
+                                    <?php if ($t['mobile_module_enabled']): ?>
+                                        <span class="badge bg-warning text-dark mt-1"><i class="bi bi-phone"></i> Arcade PWA</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-light text-muted mt-1">Sin PWA</span>
+                                    <?php endif; ?>
+                                </td>
                     <td>
                         <?php if ($t['sync_token']): ?>
                             <div class="d-flex align-items-center">

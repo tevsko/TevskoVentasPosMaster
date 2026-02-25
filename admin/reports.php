@@ -9,6 +9,8 @@ $isManager = ($currentUser['role'] === 'branch_manager');
 $userBranchId = $currentUser['branch_id'];
 
 $db = Database::getInstance()->getConnection();
+$driver = \Database::getInstance()->getDriver();
+$tenantId = $currentUser['tenant_id'] ?? null;
 
 // --- FILTROS (LOGICA DE TURNO INTELIGENTE) ---
 $current_hour = (int)date('H');
@@ -19,11 +21,16 @@ if ($current_hour < 9) {
 
 $filter_date = $_GET['date'] ?? $default_date;
 $start = $filter_date . ' 09:00:00';
-$end = date('Y-m-d H:i:s', strtotime($start . ' +1 day'));
+// If viewing today's shift, show up to current time; otherwise show full 24h shift
+$is_today = ($filter_date === date('Y-m-d')) || ($filter_date === date('Y-m-d', strtotime('-1 day')) && $current_hour < 9);
+$end = $is_today ? date('Y-m-d H:i:s') : date('Y-m-d H:i:s', strtotime($start . ' +1 day'));
 
 // --- QUERY BUILDER ---
 // Base params (Time window)
 $baseParams = [$start, $end];
+if ($driver !== 'sqlite') {
+    $baseParams[] = $tenantId;
+}
 $branchSQL = "";
 
 // Apply Branch Filter if Manager
@@ -49,40 +56,64 @@ function safeQuery($db, $sql, $params) {
 }
 
 // 1. Stats Globales
+$whereTenant = ($driver === 'sqlite') ? "" : " AND s.tenant_id = ? ";
 $sql_stats = "SELECT 
     COUNT(*) as txns, SUM(amount) as total,
     SUM(CASE WHEN payment_method='cash' THEN amount ELSE 0 END) as cash,
     SUM(CASE WHEN payment_method='qr' THEN amount ELSE 0 END) as qr
-    FROM sales s WHERE s.created_at >= ? AND s.created_at < ? $branchSQL";
+    FROM sales s WHERE s.created_at >= ? AND s.created_at < ? $whereTenant $branchSQL";
 $stats = safeQuery($db, $sql_stats, $baseParams)[0] ?? ['txns'=>0, 'total'=>0, 'cash'=>0, 'qr'=>0];
 
 // 2. Data Sets
+$joinTenant = ($driver === 'sqlite') ? "" : " AND s.tenant_id = m.tenant_id";
+$whereTenantM = ($driver === 'sqlite') ? "" : " AND s.tenant_id = ? ";
 $data_machines = safeQuery($db, 
     "SELECT m.name as Concepto, COUNT(*) as Cantidad, SUM(s.amount) as Total 
-     FROM sales s JOIN machines m ON s.machine_id = m.id 
-     WHERE s.created_at >= ? AND s.created_at < ? $branchSQL GROUP BY m.id ORDER BY Total DESC", 
+     FROM sales s LEFT JOIN machines m ON s.machine_id = m.id $joinTenant
+     WHERE s.created_at >= ? AND s.created_at < ? $whereTenantM $branchSQL GROUP BY m.id ORDER BY Total DESC", 
     $baseParams);
 
+$joinTenantU = ($driver === 'sqlite') ? "" : " AND s.tenant_id = u.tenant_id";
 $data_employees = safeQuery($db, 
     "SELECT u.username as Concepto, COUNT(*) as Cantidad, SUM(s.amount) as Total 
-     FROM sales s JOIN users u ON s.user_id = u.id 
-     WHERE s.created_at >= ? AND s.created_at < ? $branchSQL GROUP BY u.id ORDER BY Total DESC", 
+     FROM sales s LEFT JOIN users u ON s.user_id = u.id $joinTenantU
+     WHERE s.created_at >= ? AND s.created_at < ? $whereTenantM $branchSQL GROUP BY u.id ORDER BY Total DESC", 
     $baseParams);
 
 $data_branches = safeQuery($db, 
     "SELECT b.name as Concepto, COUNT(*) as Cantidad, SUM(s.amount) as Total 
      FROM sales s LEFT JOIN branches b ON s.branch_id = b.id 
-     WHERE s.created_at >= ? AND s.created_at < ? $branchSQL GROUP BY b.id ORDER BY Total DESC", 
+     WHERE s.created_at >= ? AND s.created_at < ? $whereTenantM $branchSQL GROUP BY b.id ORDER BY Total DESC", 
     $baseParams);
 
-$data_detail = safeQuery($db, 
-    "SELECT DATE_FORMAT(s.created_at, '%H:%i') as Hora, COALESCE(b.name, 'N/A') as Local, u.username as Vendedor, m.name as Juego, s.payment_method as Metodo, s.amount as Monto
-     FROM sales s 
-     JOIN machines m ON s.machine_id = m.id 
-     JOIN users u ON s.user_id = u.id 
-     LEFT JOIN branches b ON s.branch_id = b.id
-     WHERE s.created_at >= ? AND s.created_at < ? $branchSQL ORDER BY s.created_at DESC", 
-    $baseParams);
+// Detail query - use driver-specific date formatting
+if ($driver === 'sqlite') {
+    // For SQLite: build params without tenant_id
+    $detailParams = [$start, $end];
+    if ($isManager) {
+        $detailParams[] = $userBranchId;
+    } elseif (isset($_GET['branch_id']) && !empty($_GET['branch_id'])) {
+        $detailParams[] = $_GET['branch_id'];
+    }
+    
+    $data_detail = safeQuery($db, 
+        "SELECT strftime('%H:%M', s.created_at) as Hora, COALESCE(b.name, 'N/A') as Local, COALESCE(u.username, 'N/A') as Vendedor, COALESCE(m.name, 'N/A') as Juego, s.payment_method as Metodo, s.amount as Monto
+         FROM sales s 
+         LEFT JOIN machines m ON s.machine_id = m.id
+         LEFT JOIN users u ON s.user_id = u.id
+         LEFT JOIN branches b ON s.branch_id = b.id 
+         WHERE s.created_at >= ? AND s.created_at < ? $branchSQL ORDER BY s.created_at DESC", 
+        $detailParams);
+} else {
+    $data_detail = safeQuery($db, 
+        "SELECT DATE_FORMAT(s.created_at, '%H:%i') as Hora, COALESCE(b.name, 'N/A') as Local, COALESCE(u.username, 'N/A') as Vendedor, COALESCE(m.name, 'N/A') as Juego, s.payment_method as Metodo, s.amount as Monto
+         FROM sales s 
+         LEFT JOIN machines m ON s.machine_id = m.id $joinTenant
+         LEFT JOIN users u ON s.user_id = u.id $joinTenantU
+         LEFT JOIN branches b ON s.branch_id = b.id 
+         WHERE s.created_at >= ? AND s.created_at < ? $whereTenantM $branchSQL ORDER BY s.created_at DESC", 
+        $baseParams);
+}
 
 // Estructura Global Manual
 $data_global = [
@@ -104,7 +135,13 @@ $json_data = json_encode([
 // Get Branches List for Admin Filter
 $branchesList = [];
 if(!$isManager) {
-    $branchesList = $db->query("SELECT id, name FROM branches WHERE status=1")->fetchAll();
+    if ($driver === 'sqlite') {
+        $branchesList = $db->query("SELECT id, name FROM branches WHERE status=1")->fetchAll();
+    } else {
+        $stmtB = $db->prepare("SELECT id, name FROM branches WHERE tenant_id = ? AND status=1");
+        $stmtB->execute([$tenantId]);
+        $branchesList = $stmtB->fetchAll();
+    }
 }
 ?>
 

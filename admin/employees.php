@@ -20,8 +20,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $emp_name = $_POST['emp_name'] ?? '';
         $emp_email = $_POST['emp_email'] ?? '';
         $password = $_POST['password'];
-        $role = $_POST['role'];
-        $branch_id = $_POST['branch_id'] ?: null;
+        $role = $_POST['role'] ?? 'employee';
+        $branch_id = ($_POST['branch_id'] ?? null) ?: null;
 
         // Security override for Manager
         if ($isManager) {
@@ -65,6 +65,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $stmt = $db->prepare("INSERT INTO users (id, username, emp_name, emp_email, password_hash, role, branch_id) VALUES (?, ?, ?, ?, ?, ?, ?)");
                     $stmt->execute([$id, $username, $emp_name, $emp_email, $hash, $role, $branch_id]);
+                    
+                    // Sync Queue
+                    $payload = json_encode([
+                        'id' => $id, 
+                        'username' => $username, 
+                        'emp_name' => $emp_name, 
+                        'emp_email' => $emp_email, 
+                        'password_hash' => $hash, 
+                        'role' => $role, 
+                        'branch_id' => $branch_id,
+                        'active' => 1
+                    ]);
+                    $db->prepare("INSERT INTO sync_queue (resource_type, resource_uuid, payload) VALUES ('user', ?, ?)")->execute([$id, $payload]);
+
                     $message = "Empleado creado correctamente.";
                 } catch (PDOException $e) { $error = "Error: " . $e->getMessage(); }
             }
@@ -74,8 +88,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = $_POST['id'];
         $emp_name = $_POST['emp_name'] ?? '';
         $emp_email = $_POST['emp_email'] ?? '';
-        $role = $_POST['role'];
-        $branch_id = $_POST['branch_id'] ?: null;
+        $role = $_POST['role'] ?? 'employee';
+        $branch_id = ($_POST['branch_id'] ?? null) ?: null;
         
         // Security override for Manager
         if ($isManager) {
@@ -108,6 +122,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $db->prepare($sql);
             $stmt->execute($params);
+
+            // Sync Queue (Edición)
+            $stmtU = $db->prepare("SELECT * FROM users WHERE id = ?");
+            $stmtU->execute([$id]);
+            $u = $stmtU->fetch();
+            if ($u) {
+                $payload = json_encode([
+                    'id' => $u['id'],
+                    'username' => $u['username'],
+                    'emp_name' => $u['emp_name'],
+                    'emp_email' => $u['emp_email'],
+                    'password_hash' => $u['password_hash'],
+                    'role' => $u['role'],
+                    'branch_id' => $u['branch_id'],
+                    'active' => $u['active']
+                ]);
+                $db->prepare("INSERT INTO sync_queue (resource_type, resource_uuid, payload) VALUES ('user', ?, ?)")->execute([$u['id'], $payload]);
+            }
+
             $message = "Usuario actualizado.";
         } catch (PDOException $e) { $error = "Error: " . $e->getMessage(); }
     }
@@ -148,6 +181,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $new_status = $current_status == 1 ? 0 : 1;
                     $stmt = $db->prepare("UPDATE users SET active = ? WHERE id = ?");
                     $stmt->execute([$new_status, $id]);
+
+                    // Sync Queue (Toggle)
+                     $stmtU = $db->prepare("SELECT * FROM users WHERE id = ?");
+                     $stmtU->execute([$id]);
+                     $u = $stmtU->fetch();
+                     if ($u) {
+                         $payload = json_encode($u);
+                         $db->prepare("INSERT INTO sync_queue (resource_type, resource_uuid, payload) VALUES ('user', ?, ?)")->execute([$u['id'], $payload]);
+                     }
+
                     $message = "Estado del usuario actualizado.";
                 } catch (PDOException $e) { $error = "Error: " . $e->getMessage(); }
             }

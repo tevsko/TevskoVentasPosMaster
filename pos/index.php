@@ -1,5 +1,8 @@
 <?php
 // pos/index.php (V5: Original Success UI)
+// CRITICAL: Load error handler FIRST to prevent headers errors
+require_once __DIR__ . '/../bootstrap_error_handler.php';
+
 require_once __DIR__ . '/../src/Auth.php';
 require_once __DIR__ . '/../src/Uuid.php';
 
@@ -72,7 +75,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $machine = $stmt->fetch();
             
             if ($machine) {
-                if ($machine['branch_id'] && $machine['branch_id'] !== $branch_id) {
+                // En cliente SQLite (single-branch), no validamos branch_id
+                $driver = Database::getInstance()->getDriver();
+                $is_wrong_branch = ($driver !== 'sqlite' && $machine['branch_id'] && $machine['branch_id'] !== $branch_id);
+                
+                if ($is_wrong_branch) {
                     $error = "Producto de otro local.";
                 } else {
                     if (!isset($_SESSION['cart'])) $_SESSION['cart'] = [];
@@ -151,15 +158,24 @@ $cart = $_SESSION['cart'] ?? [];
 $cart_total = array_sum(array_column($cart, 'total'));
 
 // Load Machines
-$sqlMachines = "SELECT id, name, price FROM machines WHERE active=1 AND (branch_id IS NULL OR branch_id='$branch_id')";
+// En cliente offline, mostramos todos los productos activos (single-branch)
+// En servidor multi-tenant, filtramos por branch_id
+$driver = Database::getInstance()->getDriver();
+if ($driver === 'sqlite') {
+    // Cliente: mostrar todos los productos activos
+    $sqlMachines = "SELECT id, name, price FROM machines WHERE active=1";
+} else {
+    // Servidor: filtrar por sucursal
+    $sqlMachines = "SELECT id, name, price FROM machines WHERE active=1 AND (branch_id IS NULL OR branch_id='$branch_id')";
+}
 $machines = $db->query($sqlMachines)->fetchAll(PDO::FETCH_ASSOC);
 
 // Shift Logic
 $cur_h = (int)date('H');
 $shift_date = ($cur_h < 9) ? date('Y-m-d', strtotime('-1 day')) : date('Y-m-d');
 $shift_start = $shift_date . ' 09:00:00';
-$shift_end   = date('Y-m-d H:i:s', strtotime($shift_start . ' +1 day'));
-$stmt = $db->prepare("SELECT COUNT(*) as total_txns, COALESCE(SUM(amount),0) as total_amount, COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN amount ELSE 0 END),0) as total_cash, COALESCE(SUM(CASE WHEN payment_method = 'qr' THEN amount ELSE 0 END),0) as total_qr FROM sales WHERE user_id = ? AND created_at >= ? AND created_at < ?");
+$shift_end   = date('Y-m-d H:i:s'); // Current time instead of future timestamp
+$stmt = $db->prepare("SELECT COUNT(*) as total_txns, COALESCE(SUM(amount),0) as total_amount, COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN amount ELSE 0 END),0) as total_cash, COALESCE(SUM(CASE WHEN payment_method = 'qr' THEN amount ELSE 0 END),0) as total_qr FROM sales WHERE user_id = ? AND created_at >= ? AND created_at <= ?");
 $stmt->execute([$currentUser['id'], $shift_start, $shift_end]);
 $my_shift = $stmt->fetch();
 
@@ -177,6 +193,7 @@ if ($show_success) { unset($_SESSION['last_total']); unset($_SESSION['last_paid'
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title><?= htmlspecialchars($pos_title) ?></title>
     <link href="../assets/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="icon" type="image/png" href="../assets/img/favicon_astronaut.png">
     <link rel="stylesheet" href="../assets/vendor/bootstrap-icons/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;800&display=swap" rel="stylesheet">
     
@@ -707,7 +724,7 @@ if ($show_success) { unset($_SESSION['last_total']); unset($_SESSION['last_paid'
                 }
                 qrModal.show();
             }
-la opcion 1          }
+        }
 
         // Cash Change Calc
         document.getElementById('cashInput').addEventListener('input', function() {
@@ -721,6 +738,22 @@ la opcion 1          }
         document.getElementById('formCheckout').addEventListener('submit', function() {
              if(document.getElementById('cashInput').value === '') document.getElementById('cashInput').value = boxTotal;
         });
+
+        // --- BACKGROUND AUTO-SYNC (Solo en Local) ---
+        <?php 
+        $driver = \Database::getInstance()->getDriver();
+        if ($driver === 'sqlite'): 
+        ?>
+        function runAutoSync() {
+            console.log("Iniciando autosync POS...");
+            fetch('../scripts/sync_upload.php').catch(e => console.error("Error auto-upload:", e));
+            if (new Date().getMinutes() % 15 === 0) {
+                fetch('../scripts/sync_pull.php').catch(e => console.error("Error auto-pull:", e));
+            }
+        }
+        setInterval(runAutoSync, 5 * 60 * 1000);
+        setTimeout(runAutoSync, 60 * 1000); // Dar un minuto al iniciar
+        <?php endif; ?>
     </script>
 </body>
 </html>

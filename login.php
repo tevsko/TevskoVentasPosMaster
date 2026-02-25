@@ -20,13 +20,23 @@ if ($auth->isAuthenticated()) {
 
 $db = Database::getInstance()->getConnection();
 $driver = Database::getInstance()->getDriver();
-$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
 $currentTenantId = null;
 
 if ($driver !== 'sqlite') {
+    // Asegurar que la sesión esté iniciada para leer tenant cache
+    if (session_status() === PHP_SESSION_NONE) @session_start();
+    
     // MySQL (Cloud) logic: identify tenant
-    $tenantQuery = $_GET['tenant'] ?? $_SESSION['current_tenant_name'] ?? null;
-    $hostPart = explode('.', $host)[0];
+    $tenantQuery = null;
+    if (isset($_GET['tenant'])) {
+        $tenantQuery = $_GET['tenant'];
+    } elseif (isset($_SESSION['current_tenant_name'])) {
+        $tenantQuery = $_SESSION['current_tenant_name'];
+    }
+    
+    $hostParts = explode('.', $host);
+    $hostPart = $hostParts[0];
     
     if ($tenantQuery) {
         $stmtTenant = $db->prepare("SELECT id, subdomain FROM tenants WHERE subdomain = ?");
@@ -56,8 +66,8 @@ if ($driver !== 'sqlite') {
 
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = $_POST['username'] ?? '';
-    $password = $_POST['password'] ?? '';
+    $username = isset($_POST['username']) ? $_POST['username'] : '';
+    $password = isset($_POST['password']) ? $_POST['password'] : '';
     
     $loginResult = $auth->login($username, $password, $currentTenantId);
 
@@ -170,7 +180,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </form>
         
         <div class="text-center mt-3">
-             <small class="text-muted">¿Olvido su contraseña? Contacte al Admin</small>
+             <?php 
+             // Show password recovery link only on cloud (MySQL) deployments
+             $isCloud = (isset($driver) && $driver !== 'sqlite') || file_exists(__DIR__ . '/config/db.php');
+             ?>
+             <?php if ($driver !== 'sqlite'): ?>
+             <a href="forgot_password.php" class="text-decoration-none small text-primary">
+                 <i class="bi bi-key me-1"></i>¿Olvidaste tu contraseña?
+             </a>
+             <?php else: ?>
+             <small class="text-muted">¿Olvidaste tu contraseña? Contacta al Administrador</small>
+             <?php endif; ?>
              <?php if (!file_exists('landing.php')): ?>
              <div class="mt-2">
                  <a href="setup_client.php" class="text-decoration-none small text-primary">

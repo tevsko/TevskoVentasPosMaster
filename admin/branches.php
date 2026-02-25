@@ -6,6 +6,8 @@ require_once __DIR__ . '/../src/Uuid.php';
 $db = Database::getInstance()->getConnection();
 $message = '';
 $error = '';
+$driver = \Database::getInstance()->getDriver();
+$tenantId = $currentUser['tenant_id'] ?? null;
 
 // Handle Create/Delete/Edit
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -17,8 +19,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = Uuid::generate();
         
         try {
-            $stmt = $db->prepare("INSERT INTO branches (id, name, address) VALUES (?, ?, ?)");
-            $stmt->execute([$id, $name, $address]);
+            if ($driver === 'sqlite') {
+                $stmt = $db->prepare("INSERT INTO branches (id, name, address) VALUES (?, ?, ?)");
+                $stmt->execute([$id, $name, $address]);
+            } else {
+                $stmt = $db->prepare("INSERT INTO branches (id, tenant_id, name, address) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$id, $tenantId, $name, $address]);
+            }
             $message = "Sucursal creada correctamente.";
         } catch (PDOException $e) {
             $error = "Error al crear: " . $e->getMessage();
@@ -48,7 +55,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // List Branches
-$branches = $db->query("SELECT * FROM branches WHERE status = 1")->fetchAll();
+if ($driver === 'sqlite') {
+    $branches = $db->query("SELECT * FROM branches WHERE status = 1")->fetchAll();
+} else {
+    $stmt = $db->prepare("SELECT * FROM branches WHERE tenant_id = ? AND status = 1");
+    $stmt->execute([$tenantId]);
+    $branches = $stmt->fetchAll();
+}
 ?>
 
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">

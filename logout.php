@@ -3,5 +3,5 @@
 require_once 'src/Auth.php';
 $auth = new Auth();
 $auth->logout();
-header('Location: login.php');
+header('Location: index.php');
 exit;

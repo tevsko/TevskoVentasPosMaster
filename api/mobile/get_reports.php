@@ -27,11 +27,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 }
 
 // Obtener parámetros
-$token = $_GET['token'] ?? '';
-$employee_id = $_GET['employee_id'] ?? null;
-$location_id = $_GET['location_id'] ?? null;
-$date_from = $_GET['date_from'] ?? null;
-$date_to = $_GET['date_to'] ?? null;
+$token = isset($_GET['token']) ? $_GET['token'] : '';
+$employee_id = isset($_GET['employee_id']) ? $_GET['employee_id'] : null;
+$location_id = isset($_GET['location_id']) ? $_GET['location_id'] : null;
+$date_from = isset($_GET['date_from']) ? $_GET['date_from'] : null;
+$date_to = isset($_GET['date_to']) ? $_GET['date_to'] : null;
 $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 30;
 
 if (empty($token)) {
@@ -57,16 +57,16 @@ try {
     
     // Usar datos de sesión si no se proporcionan
     if (!$employee_id) {
-        $employee_id = $_SESSION['mobile_employee_id'] ?? null;
+        $employee_id = isset($_SESSION['mobile_employee_id']) ? $_SESSION['mobile_employee_id'] : null;
     }
     if (!$location_id) {
-        $location_id = $_SESSION['mobile_location_id'] ?? null;
+        $location_id = isset($_SESSION['mobile_location_id']) ? $_SESSION['mobile_location_id'] : null;
     }
 
     // Validar que el empleado pertenezca al tenant actual
     if ($employee_id) {
         $stmtEmp = $db->prepare("SELECT l.tenant_id FROM arcade_employees e JOIN arcade_locations l ON e.location_id = l.id WHERE e.id = ?");
-        $stmtEmp->execute([$employee_id]);
+        $stmtEmp->execute(array($employee_id));
         $empTenant = $stmtEmp->fetchColumn();
         if ($empTenant != $tenantId) {
             http_response_code(403);
@@ -139,7 +139,7 @@ try {
     
     // Formatear reportes
     $formattedReports = array_map(function($report) {
-        return [
+        return array(
             'id' => (int)$report['id'],
             'date' => $report['report_date'],
             'total_sales' => (float)$report['total_sales'],
@@ -154,14 +154,14 @@ try {
             'is_offline_sync' => (bool)$report['is_offline_sync'],
             'employee_name' => $report['employee_name'],
             'location_name' => $report['location_name']
-        ];
+        );
     }, $reports);
     
-    echo json_encode([
+    echo json_encode(array(
         'success' => true,
         'reports' => $formattedReports,
         'count' => count($formattedReports)
-    ]);
+    ));
     
 } catch (Exception $e) {
     http_response_code(500);

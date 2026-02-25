@@ -1,9 +1,32 @@
 <?php
 // index.php
-// CRITICAL: Load error handler FIRST
-require_once __DIR__ . '/bootstrap_error_handler.php';
+// CRITICAL: Suprimir TODOS los errores INMEDIATAMENTE
+@ini_set('display_errors', '0');
+@ini_set('display_startup_errors', '0');
+@ini_set('log_errors', '1');
+@ini_set('error_log', __DIR__ . '/php_errors.log');
+@error_reporting(0); // Suprimir TODO
+ob_start(); // Iniciar buffering INMEDIATAMENTE
+
 
 session_start();
+
+// Check maintenance mode (before anything else)
+require_once __DIR__ . '/src/Database.php';
+try {
+    $db = Database::getInstance()->getConnection();
+    $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+    $stmt->execute(['maintenance_mode']);
+    $maintenanceMode = $stmt->fetchColumn();
+    
+    if ($maintenanceMode === '1') {
+        // Redirect to maintenance page
+        header('Location: maintenance.html');
+        exit;
+    }
+} catch (Exception $e) {
+    // If database not ready, continue normally (e.g., during install)
+}
 
 // Definir ruta base
 define('BASE_PATH', __DIR__);

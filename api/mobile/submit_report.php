@@ -35,15 +35,15 @@ if (!$input) {
     exit;
 }
 
-$token = $input['token'] ?? '';
-$report_date = $input['report_date'] ?? date('Y-m-d');
-$products_sold = $input['products_sold'] ?? [];
-$cash_received = $input['cash_received'] ?? 0;
-$mercadopago_received = $input['mercadopago_received'] ?? 0;
-$transfer_received = $input['transfer_received'] ?? 0;
-$expenses = $input['expenses'] ?? [];
-$employee_paid = $input['employee_paid'] ?? false;
-$photo_base64 = $input['photo_base64'] ?? null;
+$token = isset($input['token']) ? $input['token'] : '';
+$report_date = isset($input['report_date']) ? $input['report_date'] : date('Y-m-d');
+$products_sold = isset($input['products_sold']) ? $input['products_sold'] : array();
+$cash_received = isset($input['cash_received']) ? $input['cash_received'] : 0;
+$mercadopago_received = isset($input['mercadopago_received']) ? $input['mercadopago_received'] : 0;
+$transfer_received = isset($input['transfer_received']) ? $input['transfer_received'] : 0;
+$expenses = isset($input['expenses']) ? $input['expenses'] : array();
+$employee_paid = isset($input['employee_paid']) ? $input['employee_paid'] : false;
+$photo_base64 = isset($input['photo_base64']) ? $input['photo_base64'] : null;
 
 if (empty($token)) {
     http_response_code(400);
@@ -113,14 +113,14 @@ try {
     $products_sold_formatted = [];
     
     foreach ($products_sold as $item) {
-        $product_id = $item['product_id'] ?? 0;
-        $quantity = $item['quantity'] ?? 0;
+        $product_id = isset($item['product_id']) ? $item['product_id'] : 0;
+        $quantity = isset($item['quantity']) ? $item['quantity'] : 0;
         
         if ($quantity <= 0) continue;
         
         // Obtener precio del producto
         $prodStmt = $db->prepare("SELECT product_name, price FROM arcade_products WHERE id = :id");
-        $prodStmt->execute([':id' => $product_id]);
+        $prodStmt->execute(array(':id' => $product_id));
         $product = $prodStmt->fetch(PDO::FETCH_ASSOC);
         
         if ($product) {
@@ -128,13 +128,13 @@ try {
             $subtotal = $quantity * $price;
             $total_sales += $subtotal;
             
-            $products_sold_formatted[] = [
+            $products_sold_formatted[] = array(
                 'product_id' => (int)$product_id,
                 'product_name' => $product['product_name'],
                 'quantity' => (int)$quantity,
                 'price' => $price,
                 'total' => $subtotal
-            ];
+            );
         }
     }
     
@@ -143,13 +143,14 @@ try {
     $total_expenses = 0;
     $expenses_formatted = [];
     foreach ($expenses as $expense) {
-        $amount = (float)($expense['amount'] ?? 0);
+        $amountValue = isset($expense['amount']) ? $expense['amount'] : 0;
+        $amount = (float)$amountValue;
         if ($amount > 0) {
             $total_expenses += $amount;
-            $expenses_formatted[] = [
-                'description' => $expense['description'] ?? 'Sin descripción',
+            $expenses_formatted[] = array(
+                'description' => isset($expense['description']) ? $expense['description'] : 'Sin descripción',
                 'amount' => $amount
-            ];
+            );
         }
     }
     
@@ -215,8 +216,9 @@ try {
         )
     ");
     
-    $device_info = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
-    $is_offline_sync = $input['is_offline_sync'] ?? 0;
+    $userAgent = isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : 'Unknown';
+    $device_info = $userAgent;
+    $is_offline_sync = isset($input['is_offline_sync']) ? $input['is_offline_sync'] : 0;
     
     $insertStmt->execute([
         ':location_id' => $location_id,

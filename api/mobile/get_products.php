@@ -27,8 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 }
 
 // Obtener parámetros
-$token = $_GET['token'] ?? '';
-$location_id = $_GET['location_id'] ?? null;
+$token = isset($_GET['token']) ? $_GET['token'] : '';
+$location_id = isset($_GET['location_id']) ? $_GET['location_id'] : null;
 
 if (empty($token)) {
     http_response_code(400);
@@ -53,7 +53,7 @@ try {
     
     // Validar que el local pertenezca al tenant actual
     $stmtLoc = $db->prepare("SELECT tenant_id FROM arcade_locations WHERE id = ?");
-    $stmtLoc->execute([$location_id]);
+    $stmtLoc->execute(array($location_id));
     $locTenant = $stmtLoc->fetchColumn();
     
     if ($locTenant != $tenantId) {
@@ -81,22 +81,22 @@ try {
         ORDER BY display_order ASC, id ASC
     ");
     
-    $stmt->execute([':location_id' => $location_id]);
+    $stmt->execute(array(':location_id' => $location_id));
     $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     // Convertir a formato adecuado
     $formattedProducts = array_map(function($product) {
-        return [
+        return array(
             'id' => (int)$product['id'],
             'name' => $product['product_name'],
             'price' => (float)$product['price']
-        ];
+        );
     }, $products);
     
-    echo json_encode([
+    echo json_encode(array(
         'success' => true,
         'products' => $formattedProducts
-    ]);
+    ));
     
 } catch (Exception $e) {
     http_response_code(500);

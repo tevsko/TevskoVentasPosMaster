@@ -22,8 +22,9 @@ Options -Indexes
     # instalacion_optional: Manuales y scripts
     RewriteRule ^instalacion_optional/ - [F,L]
     
-    # Nota: install/ se deja accesible para la instalación, 
-    # pero el usuario debería borrarla después o protegerla aquí si ya instaló.
+    # PASAR CABECERA AUTHORIZATION (Necesario para Sincronización en algunos hostings)
+    RewriteCond %{HTTP:Authorization} ^(.*)
+    RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
 </IfModule>
 
 # 4. Seguridad de Cabeceras (Opcional pero recomendado)

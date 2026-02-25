@@ -11,6 +11,8 @@ $userBranchId = $currentUser['branch_id'];
 $db = Database::getInstance()->getConnection();
 $message = '';
 $error = '';
+$driver = \Database::getInstance()->getDriver();
+$tenantId = $currentUser['tenant_id'] ?? null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -33,8 +35,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = "El ID ya existe.";
             } else {
                 try {
-                    $stmt = $db->prepare("INSERT INTO machines (id, name, price, branch_id) VALUES (?, ?, ?, ?)");
-                    $stmt->execute([$id, $name, $price, $branch_id_input]);
+                    $sql = ($driver === 'sqlite') 
+                        ? "INSERT INTO machines (id, name, price, branch_id) VALUES (?, ?, ?, ?)"
+                        : "INSERT INTO machines (id, tenant_id, name, price, branch_id) VALUES (?, ?, ?, ?, ?)";
+                    $stmt = $db->prepare($sql);
+                    
+                    if ($driver === 'sqlite') {
+                        $stmt->execute([$id, $name, $price, $branch_id_input]);
+                    } else {
+                        $stmt->execute([$id, $tenantId, $name, $price, $branch_id_input]);
+                    }
+                    
+                    // Queue for sync
+                    $payload = json_encode(['id' => $id, 'name' => $name, 'price' => $price, 'branch_id' => $branch_id_input, 'active' => 1]);
+                    $db->prepare("INSERT INTO sync_queue (resource_type, resource_uuid, payload) VALUES ('machine', ?, ?)")->execute([$id, $payload]);
+                    
                     $message = "Máquina creada.";
                 } catch (PDOException $e) { $error = "Error: " . $e->getMessage(); }
             }
@@ -59,6 +74,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
              try {
                 $stmt = $db->prepare("UPDATE machines SET name=?, price=?, branch_id=? WHERE id=?");
                 $stmt->execute([$name, $price, $branch_id_input, $id]);
+                
+                // Sync Queue (Edición)
+                $payload = json_encode(['id' => $id, 'name' => $name, 'price' => $price, 'branch_id' => $branch_id_input, 'active' => 1]);
+                $db->prepare("INSERT INTO sync_queue (resource_type, resource_uuid, payload) VALUES ('machine', ?, ?)")->execute([$id, $payload]);
+
                 $message = "Máquina actualizada.";
             } catch (PDOException $e) { $error = "Error: " . $e->getMessage(); }
         }
@@ -80,8 +100,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $current_status = $_POST['current_status'];
             $new_status = $current_status == 1 ? 0 : 1;
             try {
+                // Get machine data for sync
+                $machineData = $db->prepare("SELECT * FROM machines WHERE id = ?");
+                $machineData->execute([$id]);
+                $machine = $machineData->fetch();
+                
                 $stmt = $db->prepare("UPDATE machines SET active = ? WHERE id = ?");
                 $stmt->execute([$new_status, $id]);
+                
+                // Queue for sync
+                if ($machine) {
+                    $payload = json_encode(['id' => $id, 'name' => $machine['name'], 'price' => $machine['price'], 'branch_id' => $machine['branch_id'], 'active' => $new_status]);
+                    $db->prepare("INSERT INTO sync_queue (resource_type, resource_uuid, payload) VALUES ('machine', ?, ?)")->execute([$id, $payload]);
+                }
+                
                 $message = "Estado actualizado.";
             } catch (PDOException $e) { $error = "Error: " . $e->getMessage(); }
         }
@@ -111,26 +143,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // List Machines
 if ($isManager) {
+    $where = ($driver === 'sqlite') ? "WHERE m.branch_id = ?" : "WHERE m.tenant_id = ? AND m.branch_id = ?";
     $stmt = $db->prepare("
         SELECT m.*, b.name as branch_name 
         FROM machines m 
         LEFT JOIN branches b ON m.branch_id = b.id 
-        WHERE m.branch_id = ?
+        $where
         ORDER BY m.id
     ");
-    $stmt->execute([$userBranchId]);
+    if ($driver === 'sqlite') {
+        $stmt->execute([$userBranchId]);
+    } else {
+        $stmt->execute([$tenantId, $userBranchId]);
+    }
     $machines = $stmt->fetchAll();
 } else {
-    // Admin sees all
-    $machines = $db->query("
+    // Admin sees all within tenant (or all in local)
+    $where = ($driver === 'sqlite') ? "" : "WHERE m.tenant_id = ?";
+    $stmt = $db->prepare("
         SELECT m.*, b.name as branch_name 
         FROM machines m 
         LEFT JOIN branches b ON m.branch_id = b.id 
+        $where
         ORDER BY m.id
-    ")->fetchAll();
+    ");
+    if ($driver === 'sqlite') {
+        $stmt->execute();
+    } else {
+        $stmt->execute([$tenantId]);
+    }
+    $machines = $stmt->fetchAll();
 }
 
-$branches = $db->query("SELECT * FROM branches WHERE status = 1")->fetchAll();
+if ($driver === 'sqlite') {
+    $branches = $db->query("SELECT * FROM branches WHERE status = 1")->fetchAll();
+} else {
+    $stmtB = $db->prepare("SELECT * FROM branches WHERE tenant_id = ? AND status = 1");
+    $stmtB->execute([$tenantId]);
+    $branches = $stmtB->fetchAll();
+}
 ?>
 
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">

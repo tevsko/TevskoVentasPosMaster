@@ -98,13 +98,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $base = $_POST['license_expiry'] ?: null;
         $pos = $_POST['license_pos_expiry'] ?: null;
         $mp = $_POST['license_mp_expiry'] ?: null;
+        $modo = $_POST['license_modo_expiry'] ?: null;
         $cloud = $_POST['license_cloud_expiry'] ?: null;
+        $arcade = $_POST['license_arcade_expiry'] ?: null;
         $limit = $_POST['pos_license_limit'] ?? 1;
 
         try {
-            $stmt = $db->prepare("UPDATE branches SET license_expiry=?, license_pos_expiry=?, license_mp_expiry=?, license_cloud_expiry=?, pos_license_limit=? WHERE id=?");
-            $stmt->execute([$base, $pos, $mp, $cloud, $limit, $branchId]);
-            $message = "Licencias y Límites actualizados.";
+            // Actualizar sistema antiguo (branches)
+            $stmt = $db->prepare("UPDATE branches SET license_expiry=?, license_pos_expiry=?, license_mp_expiry=?, license_modo_expiry=?, license_cloud_expiry=?, license_arcade_expiry=?, pos_license_limit=? WHERE id=?");
+            $stmt->execute([$base, $pos, $mp, $modo, $cloud, $arcade, $limit, $branchId]);
+            
+            // NUEVO: También actualizar sistema moderno (device_licenses)
+            // Obtener el tenant_id de esta branch
+            $stmtTenant = $db->prepare("SELECT tenant_id FROM branches WHERE id = ?");
+            $stmtTenant->execute([$branchId]);
+            $tenantId = $stmtTenant->fetchColumn();
+            
+            if ($tenantId && $pos) {
+                // Actualizar todos los dispositivos de este tenant con la nueva fecha de expiración
+                $stmt = $db->prepare("
+                    UPDATE device_licenses 
+                    SET expires_at = ?,
+                        status = IF(? >= CURDATE(), 'active', 'expired'),
+                        payment_status = IF(? >= CURDATE(), 'paid', 'overdue')
+                    WHERE tenant_id = ?
+                ");
+                
+                // Convertir fecha Y-m-d a Y-m-d H:i:s para device_licenses
+                $expiryDatetime = $pos ? $pos . ' 23:59:59' : null;
+                $stmt->execute([$expiryDatetime, $pos, $pos, $tenantId]);
+            }
+            
+            $message = "Licencias y Límites actualizados (sistema antiguo y moderno sincronizados).";
         } catch (PDOException $e) { $error = "Error al actualizar licencias: " . $e->getMessage(); }
     }
 }
@@ -128,8 +153,24 @@ function checkLic($date) {
 
 $lic_base = checkLic($branch['license_expiry']);
 $lic_pos = checkLic($branch['license_pos_expiry']);
-$lic_mp = checkLic($branch['license_mp_expiry']);
-$lic_cloud = checkLic($branch['license_cloud_expiry']);
+$lic_mp = checkLic($branch['license_mp_expiry'] ?? null);
+$lic_modo = checkLic($branch['license_modo_expiry'] ?? null);
+$lic_cloud = checkLic($branch['license_cloud_expiry'] ?? null);
+$lic_arcade = checkLic($branch['license_arcade_expiry'] ?? null);
+
+// Fetch Sync Token for display
+$syncToken = 'No disponible';
+$driver = Database::getInstance()->getDriver();
+if ($driver === 'sqlite') {
+    $stmtT = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'sync_token'");
+    $stmtT->execute();
+    $syncToken = $stmtT->fetchColumn() ?: 'No configurado';
+} else {
+    // On Server: Try to find tenant sync token via user bridge
+    $stmtT = $db->prepare("SELECT t.sync_token FROM tenants t JOIN users u ON u.tenant_id = t.id WHERE u.branch_id = ? LIMIT 1");
+    $stmtT->execute([$branchId]);
+    $syncToken = $stmtT->fetchColumn() ?: 'No generado';
+}
 
 function licBadge($status, $date) {
     if ($status) return '<span class="badge bg-success">Activa</span> <small class="text-muted">Vence: '.$date.'</small>';
@@ -229,6 +270,18 @@ $recentSales = $stmt->fetchAll();
             </div>
             <div class="col-md-4">
                 <div class="card mb-4">
+                    <div class="card-header bg-white"><h5 class="mb-0">Estado de Licencias</h5></div>
+                    <div class="list-group list-group-flush small">
+                        <div class="list-group-item d-flex justify-content-between align-items-center">Pos Base: <?= licBadge($lic_base, $branch['license_expiry']) ?></div>
+                        <div class="list-group-item d-flex justify-content-between align-items-center">Ventas (POS): <?= licBadge($lic_pos, $branch['license_pos_expiry'] ?? null) ?></div>
+                        <div class="list-group-item d-flex justify-content-between align-items-center">Mercado Pago: <?= licBadge($lic_mp, $branch['license_mp_expiry'] ?? null) ?></div>
+                        <div class="list-group-item d-flex justify-content-between align-items-center">MODO: <?= licBadge($lic_modo, $branch['license_modo_expiry'] ?? null) ?></div>
+                        <div class="list-group-item d-flex justify-content-between align-items-center">Nube / Sincro: <?= licBadge($lic_cloud, $branch['license_cloud_expiry'] ?? null) ?></div>
+                        <div class="list-group-item d-flex justify-content-between align-items-center text-primary">Arcade PWA: <?= licBadge($lic_arcade, $branch['license_arcade_expiry'] ?? null) ?></div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
                     <div class="card-header bg-white"><h5 class="mb-0">Gestión Rápida</h5></div>
                     <div class="list-group list-group-flush">
                          <a href="machines.php" class="list-group-item list-group-item-action">Gestionar Máquinas</a>
@@ -257,13 +310,21 @@ $recentSales = $stmt->fetchAll();
                                 <label class="form-label fw-bold">Licencia Módulo POS</label>
                                 <input type="date" name="license_pos_expiry" class="form-control" value="<?= $branch['license_pos_expiry'] ?>">
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <label class="form-label fw-bold">Licencia Mercado Pago</label>
                                 <input type="date" name="license_mp_expiry" class="form-control" value="<?= $branch['license_mp_expiry'] ?>">
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">Licencia MODO</label>
+                                <input type="date" name="license_modo_expiry" class="form-control" value="<?= $branch['license_modo_expiry'] ?? '' ?>">
+                            </div>
+                            <div class="col-md-4">
                                 <label class="form-label fw-bold">Licencia Nube</label>
                                 <input type="date" name="license_cloud_expiry" class="form-control" value="<?= $branch['license_cloud_expiry'] ?>">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-primary">Licencia Arcade PWA</label>
+                                <input type="date" name="license_arcade_expiry" class="form-control" value="<?= $branch['license_arcade_expiry'] ?>">
                             </div>
                             <div class="col-12"><hr></div>
                             <div class="col-md-4">
@@ -292,8 +353,16 @@ $recentSales = $stmt->fetchAll();
                             <div><?= licBadge($lic_mp, $branch['license_mp_expiry']) ?></div>
                         </li>
                         <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div><i class="bi bi-credit-card me-2"></i> Módulo MODO</div>
+                            <div><?= licBadge($lic_modo, $branch['license_modo_expiry']) ?></div>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
                             <div><i class="bi bi-cloud-arrow-up me-2"></i> Módulo Nube</div>
                             <div><?= licBadge($lic_cloud, $branch['license_cloud_expiry']) ?></div>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center text-primary">
+                            <div><i class="bi bi-phone me-2"></i> Módulo Arcade PWA</div>
+                            <div><?= licBadge($lic_arcade, $branch['license_arcade_expiry']) ?></div>
                         </li>
                     </ul>
                     <div class="mt-4 p-3 bg-light rounded text-center">
@@ -387,22 +456,48 @@ $recentSales = $stmt->fetchAll();
     </div>
     <?php endif; ?>
 
-    <!-- CLOUD SYNC (Conditional) -->
+    <!-- CLOUD SYNC / TOKEN SYNC -->
     <?php if ($lic_cloud): ?>
     <div class="tab-pane fade" id="cloud">
         <div class="card shadow-sm border-0">
             <div class="card-body">
-                <h5 class="mb-4">Sincronización con Nube</h5>
-                <form method="POST">
-                    <input type="hidden" name="action" value="save_cloud">
-                    <div class="row g-3">
-                        <div class="col-md-6"><label class="form-label">Host Remoto</label><input type="text" name="cloud_host" class="form-control" value="<?= htmlspecialchars($branch['cloud_host'] ?? '') ?>"></div>
-                        <div class="col-md-6"><label class="form-label">Base de Datos</label><input type="text" name="cloud_db" class="form-control" value="<?= htmlspecialchars($branch['cloud_db'] ?? '') ?>"></div>
-                        <div class="col-md-6"><label class="form-label">Usuario BD</label><input type="text" name="cloud_user" class="form-control" value="<?= htmlspecialchars($branch['cloud_user'] ?? '') ?>"></div>
-                        <div class="col-md-6"><label class="form-label">Contraseña BD</label><div class="input-group"><input type="password" name="cloud_pass" class="form-control" value="<?= htmlspecialchars($branch['cloud_pass'] ?? '') ?>"><button type="submit" name="action" value="test_cloud" class="btn btn-outline-warning">Probar Conexión</button></div></div>
+                <h5 class="mb-3">Sincronización con Nube</h5>
+                
+                <div class="alert alert-info border-0 shadow-sm mb-4">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-info-circle-fill fs-4 me-3"></i>
+                        <div>
+                            <strong>Información de Sincronización:</strong><br>
+                            Utilice el Token de Sincronización para vincular este local con el servidor en la nube.
+                        </div>
                     </div>
-                    <div class="mt-4 text-end"><button type="submit" class="btn btn-primary">Guardar Cambios</button></div>
-                </form>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label fw-bold">Token de Sincronización</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control font-monospace" value="<?= htmlspecialchars($syncToken) ?>" readonly id="tokenInput">
+                        <button class="btn btn-outline-primary" type="button" onclick="copyToken()">
+                            <i class="bi bi-clipboard"></i> Copiar
+                        </button>
+                    </div>
+                    <small class="text-muted">Este es el código que debe ingresar en el Instalador o en la Configuración del cliente local.</small>
+                </div>
+
+                <?php if ($driver === 'sqlite'): ?>
+                <hr class="my-4">
+                <h6 class="mb-3">Sincronización Manual (Local)</h6>
+                <div class="d-grid gap-2 d-md-block">
+                    <button type="button" class="btn btn-primary me-md-2 mb-2" onclick="syncPush()">
+                        <i class="bi bi-cloud-upload"></i> Subir Ventas y Productos
+                    </button>
+                    <button type="button" class="btn btn-info text-white mb-2" onclick="syncPull()">
+                        <i class="bi bi-cloud-download"></i> Descargar Configuración
+                    </button>
+                </div>
+                <div id="syncResult" class="mt-2"></div>
+                <?php endif; ?>
+
             </div>
         </div>
     </div>
@@ -418,6 +513,65 @@ $recentSales = $stmt->fetchAll();
             triggerEl.addEventListener('click', function (event) { })
         })
     });
+
+    function copyToken() {
+        var copyText = document.getElementById("tokenInput");
+        copyText.select();
+        copyText.setSelectionRange(0, 99999);
+        navigator.clipboard.writeText(copyText.value);
+        alert("Token copiado al portapapeles");
+    }
+
+    <?php if ($driver === 'sqlite'): ?>
+    function syncPush() {
+        const btn = event.target;
+        const resultDiv = document.getElementById('syncResult');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Subiendo...';
+        
+        fetch('../scripts/sync_upload.php')
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    resultDiv.innerHTML = `<div class="alert alert-success mt-2">✓ Sincronizado: ${data.uploaded || 0} items subidos</div>`;
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-danger mt-2">✗ Error: ${data.error}</div>`;
+                }
+            })
+            .catch(e => {
+                resultDiv.innerHTML = `<div class="alert alert-danger mt-2">✗ Error: ${e.message}</div>`;
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-cloud-upload"></i> Subir Ventas y Productos';
+            });
+    }
+
+    function syncPull() {
+        const btn = event.target;
+        const resultDiv = document.getElementById('syncResult');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Descargando...';
+        
+        fetch('../scripts/sync_pull.php')
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    resultDiv.innerHTML = `<div class="alert alert-success mt-2">✓ Sincronización exitosa. Recargando...</div>`;
+                    setTimeout(() => location.reload(), 2000);
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-danger mt-2">✗ Error: ${data.error}</div>`;
+                }
+            })
+            .catch(e => {
+                resultDiv.innerHTML = `<div class="alert alert-danger mt-2">✗ Error: ${e.message}</div>`;
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-cloud-download"></i> Descargar Configuración';
+            });
+    }
+    <?php endif; ?>
 </script>
 
 <?php require_once 'layout_foot.php'; ?>

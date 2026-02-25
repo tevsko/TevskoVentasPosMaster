@@ -1,106 +1,61 @@
 <?php
 // api/webhook_mp.php
-require_once __DIR__ . '/../src/Database.php';
-require_once __DIR__ . '/../src/Billing.php';
+// Este archivo recibe notificaciones de Mercado Pago en segundo plano
 
-$db = Database::getInstance()->getConnection();
+require_once __DIR__ . '/../src/ActivationService.php';
 
-// Mercado Pago webhooks may arrive as GET with 'topic' and 'id' or POST with data
+// Leer el JSON que envía MP
 $input = file_get_contents('php://input');
-$raw = json_decode($input, true);
+$event = json_decode($input, true);
 
-// Optional HMAC verification if mp_webhook_secret is configured
-$mpWebhookSecret = Billing::getSetting('mp_webhook_secret');
-$headers = getallheaders();
-$sigHeader = $headers['X-Hub-Signature'] ?? $headers['x-hub-signature'] ?? null;
-if ($mpWebhookSecret && $sigHeader) {
-    $computed = 'sha256=' . hash_hmac('sha256', $input, $mpWebhookSecret);
-    if (!hash_equals($computed, $sigHeader)) {
-        http_response_code(401);
-        echo json_encode(['ok' => false, 'message' => 'Invalid signature']);
-        exit;
+if (!isset($event['type'])) {
+    http_response_code(400); // Bad Request
+    die('No type');
+}
+
+// Solo nos interesa cuando se crea/actualiza un pago
+if ($event['type'] === 'payment') {
+    $paymentId = $event['data']['id'];
+
+    // Consultar el estado del pago a la API de MP (Opcional pero recomendado para verificar)
+    // Para simplificar y no requerir el Token aquí de nuevo (aunque lo ideal es tenerlo),
+    // asumimos que si MP nos avisa es "payment", pero DEBERÍAMOS verificar que sea aprobado.
+    // Sin embargo, en el payload del webhook básico no viene el status, hay que consultarlo.
+    // O... usar "IPN" legacy. 
+    // MP Actual usa Notification URL con topic/id o type/data.id.
+    
+    // OPCION RAPIDA: Obtener Token de BD
+    try {
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'saas_mp_token'");
+        $token = $stmt->fetchColumn();
+        
+        if ($token) {
+            $ch = curl_init("https://api.mercadopago.com/v1/payments/$paymentId");
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token"]);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            $res = curl_exec($ch);
+            curl_close($ch);
+            
+            $payment = json_decode($res, true);
+            
+            if ($payment['status'] === 'approved') {
+                $ref = $payment['external_reference']; // "REG-123"
+                if (strpos($ref, 'REG-') === 0) {
+                    $pendingId = str_replace('REG-', '', $ref);
+                    
+                    // ACTIVAR CUENTA
+                    ActivationService::activate($pendingId);
+                    // (Si ya estaba activada, ActivationService retorna null y no pasa nada malo)
+                }
+            }
+        }
+    } catch (Exception $e) {
+        // Log error (opcional)
+        error_log("Webhook Error: " . $e->getMessage());
     }
 }
 
-$id = null;
-$topic = $_GET['topic'] ?? $_GET['type'] ?? null;
-if (!empty($raw['data']['id'])) {
-    $id = $raw['data']['id'];
-}
-// Some MP webhooks send 'id' as GET param
-if (empty($id) && !empty($_GET['id'])) $id = $_GET['id'];
-
-if (!$id) {
-    // Nothing to do
-    http_response_code(400);
-    echo json_encode(['ok' => false, 'message' => 'No id provided']);
-    exit;
-}
-
-try {
-    $payment = Billing::getPayment($id);
-    if (!$payment) {
-        throw new Exception('No se obtuvo pago desde MP');
-    }
-
-    // Buscar external_reference (we stored subscriptionId there when creating preference)
-    $externalRef = null;
-    if (!empty($payment['order']) && !empty($payment['order']['external_reference'])) {
-        $externalRef = $payment['order']['external_reference'];
-    }
-    if (!$externalRef && !empty($payment['external_reference'])) {
-        $externalRef = $payment['external_reference'];
-    }
-
-    if (!$externalRef) {
-        // Log and ignore
-        $db->prepare("INSERT INTO sync_logs (last_sync, details, status, meta) VALUES (" . \Database::nowSql() . ", ?, 'error', ?)")
-           ->execute(['Webhook sin external_reference', json_encode($payment)]);
-        echo json_encode(['ok' => false, 'message' => 'No external_reference']);
-        exit;
-    }
-
-    // Encontrar la suscripción local
-    $stmt = $db->prepare("SELECT * FROM subscriptions WHERE id = ? LIMIT 1");
-    $stmt->execute([$externalRef]);
-    $sub = $stmt->fetch();
-
-    if (!$sub) {
-        $db->prepare("INSERT INTO sync_logs (last_sync, details, status, meta) VALUES (" . \Database::nowSql() . ", ?, 'error', ?)")
-           ->execute(['Suscripción no encontrada', json_encode(['externalRef' => $externalRef, 'payment' => $payment])]);
-        echo json_encode(['ok' => false, 'message' => 'Subscription not found']);
-        exit;
-    }
-
-    // Verificar estado del pago
-    $status = $payment['status'] ?? ($payment['status_detail'] ?? null);
-    if (strtolower($status) === 'approved' || strtolower($status) === 'authorized') {
-        // Activar la suscripción
-        $db->prepare("UPDATE subscriptions SET status = 'active', external_id = ?, started_at = " . \Database::nowSql() . " WHERE id = ?")
-           ->execute([$id, $sub['id']]);
-
-        // Provisionar tenant (crear tenant + licencia)
-        // Implement inline provisioning for now
-        require_once __DIR__ . '/provision.php';
-        $tenant = provision_tenant_for_subscription($sub['id']);
-
-        $db->prepare("INSERT INTO sync_logs (last_sync, details, status, meta) VALUES (" . \Database::nowSql() . ", ?, 'success', ?)")
-           ->execute(['Subscripción activada y tenant provisionado', json_encode($tenant)]);
-
-        echo json_encode(['ok' => true]);
-        exit;
-    } else {
-        // Otros estados: pending, in_process, rejected -> registrar
-        $db->prepare("INSERT INTO sync_logs (last_sync, details, status, meta) VALUES (" . \Database::nowSql() . ", ?, 'error', ?)")
-           ->execute(['Pago no aprobado: ' . ($status ?? 'unknown'), json_encode($payment)]);
-        echo json_encode(['ok' => false, 'message' => 'Payment not approved']);
-        exit;
-    }
-
-} catch (Exception $e) {
-    $db->prepare("INSERT INTO sync_logs (last_sync, details, status, meta) VALUES (" . \Database::nowSql() . ", ?, 'error', ?)")
-       ->execute(['Webhook handler error: ' . $e->getMessage(), json_encode(['id' => $id])]);
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
-    exit;
-}
+// Responder OK siempre para que MP deje de insistir
+http_response_code(200);
+echo "OK";

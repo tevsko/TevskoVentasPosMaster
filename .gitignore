@@ -23,3 +23,16 @@ vendor/
 
 # Node
 node_modules/
+
+# Sensitive config (NEVER commit DB credentials)
+/config/db.php
+/config/*.secret.php
+
+# Debug/test files
+test_*.php
+debug_*.php
+fix_*.php
+diagnostico_*
+*.zip
+landing.php.backup
+release_web/

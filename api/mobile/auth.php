@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 // Obtener datos JSON
 $input = json_decode(file_get_contents('php://input'), true);
-$action = $input['action'] ?? '';
+$action = isset($input['action']) ? $input['action'] : '';
 
 try {
     $db = Database::getInstance()->getConnection();
@@ -70,9 +70,9 @@ try {
  * Maneja el login de empleados
  */
 function handleLogin($db, $input, $tenantId = null) {
-    $username = $input['username'] ?? '';
-    $password = $input['password'] ?? '';
-    $location_id = $input['location_id'] ?? null;
+    $username = isset($input['username']) ? $input['username'] : '';
+    $password = isset($input['password']) ? $input['password'] : '';
+    $location_id = isset($input['location_id']) ? $input['location_id'] : null;
     
     if ($tenantId) {
         // Verificar si el modulo esta activo para este tenant
@@ -131,8 +131,14 @@ function handleLogin($db, $input, $tenantId = null) {
     $updateStmt = $db->prepare("UPDATE arcade_employees SET last_login = " . Database::nowSql() . " WHERE id = :id");
     $updateStmt->execute([':id' => $employee['id']]);
     
-    // Generar token simple (en producción usar JWT)
-    $token = bin2hex(random_bytes(32));
+    // Generar token simple compatible con PHP 5.x
+    if (function_exists('random_bytes')) {
+        $token = bin2hex(random_bytes(32));
+    } elseif (function_exists('openssl_random_pseudo_bytes')) {
+        $token = bin2hex(openssl_random_pseudo_bytes(32));
+    } else {
+        $token = md5(uniqid(mt_rand(), true)) . md5(uniqid(mt_rand(), true));
+    }
     
     // Guardar token en sesión (simplificado, en producción usar tabla de tokens)
     session_start();
@@ -160,7 +166,7 @@ function handleLogin($db, $input, $tenantId = null) {
  * Valida un token
  */
 function handleValidateToken($db, $input) {
-    $token = $input['token'] ?? '';
+    $token = isset($input['token']) ? $input['token'] : '';
     
     if (empty($token)) {
         http_response_code(400);

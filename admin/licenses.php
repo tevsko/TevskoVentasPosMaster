@@ -10,18 +10,18 @@ $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
-    
     if ($action === 'update_licenses') {
         $branch_id = $_POST['branch_id'];
         $base = $_POST['license_expiry'] ?: null;
         $pos = $_POST['license_pos_expiry'] ?: null;
         $mp = $_POST['license_mp_expiry'] ?: null;
+        $modo = $_POST['license_modo_expiry'] ?: null;
         $cloud = $_POST['license_cloud_expiry'] ?: null;
         $limit = $_POST['pos_license_limit'] ?? 1;
         
         try {
-            $stmt = $db->prepare("UPDATE branches SET license_expiry = ?, license_pos_expiry = ?, license_mp_expiry = ?, license_cloud_expiry = ?, pos_license_limit = ? WHERE id = ?");
-            $stmt->execute([$base, $pos, $mp, $cloud, $limit, $branch_id]);
+            $stmt = $db->prepare("UPDATE branches SET license_expiry = ?, license_pos_expiry = ?, license_mp_expiry = ?, license_modo_expiry = ?, license_cloud_expiry = ?, pos_license_limit = ? WHERE id = ?");
+            $stmt->execute([$base, $pos, $mp, $modo, $cloud, $limit, $branch_id]);
             $message = "Licencias actualizadas correctamente.";
         } catch (PDOException $e) {
             $error = "Error al actualizar: " . $e->getMessage();
@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Get Branches with License Info
-$branches = $db->query("SELECT id, name, status, license_expiry, license_pos_expiry, license_mp_expiry, license_cloud_expiry, pos_license_limit FROM branches ORDER BY name")->fetchAll();
+$branches = $db->query("SELECT id, name, status, license_expiry, license_pos_expiry, license_mp_expiry, license_modo_expiry, license_cloud_expiry, license_arcade_expiry, pos_license_limit FROM branches ORDER BY name")->fetchAll();
 
 function getDaysLeft($date) {
     if (!$date) return -999;
@@ -75,7 +75,9 @@ function getStatusBadge($days) {
                                 <th class="text-center">POS</th>
                                 <th class="text-center">Límite POS</th>
                                 <th class="text-center">M. Pago</th>
+                                <th class="text-center">MODO</th>
                                 <th class="text-center">Nube</th>
+                                <th class="text-center">Arcade</th>
                                 <th class="text-end">Acción</th>
                             </tr>
                         </thead>
@@ -89,8 +91,10 @@ function getStatusBadge($days) {
                                 <td class="text-center"><?= getStatusBadge(getDaysLeft($b['license_expiry'])) ?><br><small><?= $b['license_expiry'] ?? '-' ?></small></td>
                                 <td class="text-center"><?= getStatusBadge(getDaysLeft($b['license_pos_expiry'])) ?><br><small><?= $b['license_pos_expiry'] ?? '-' ?></small></td>
                                 <td class="text-center fw-bold"><?= $b['pos_license_limit'] ?? 1 ?> Usuarios</td>
-                                <td class="text-center"><?= getStatusBadge(getDaysLeft($b['license_mp_expiry'])) ?><br><small><?= $b['license_mp_expiry'] ?? '-' ?></small></td>
-                                <td class="text-center"><?= getStatusBadge(getDaysLeft($b['license_cloud_expiry'])) ?><br><small><?= $b['license_cloud_expiry'] ?? '-' ?></small></td>
+                                <td class="text-center"><?= getStatusBadge(getDaysLeft($b['license_mp_expiry'] ?? null)) ?><br><small><?= $b['license_mp_expiry'] ?? '-' ?></small></td>
+                                <td class="text-center"><?= getStatusBadge(getDaysLeft($b['license_modo_expiry'] ?? null)) ?><br><small><?= $b['license_modo_expiry'] ?? '-' ?></small></td>
+                                <td class="text-center"><?= getStatusBadge(getDaysLeft($b['license_cloud_expiry'] ?? null)) ?><br><small><?= $b['license_cloud_expiry'] ?? '-' ?></small></td>
+                                <td class="text-center"><?= getStatusBadge(getDaysLeft($b['license_arcade_expiry'] ?? null)) ?><br><small><?= $b['license_arcade_expiry'] ?? '-' ?></small></td>
                                 <td class="text-end">
                                     <a href="branch_view.php?id=<?= $b['id'] ?>&tab=licenses" class="btn btn-primary btn-sm">
                                         <i class="bi bi-gear-fill"></i> Gestionar

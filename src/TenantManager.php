@@ -6,10 +6,11 @@ class TenantManager {
     private static $isGlobal = false;
 
     public static function init($pdo) {
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
+        $hostPart = explode(':', $host)[0];
         
         // 1. Detección por parámetro (GET/POST/JSON)
-        $subdomain = $_GET['tenant'] ?? $_POST['tenant'] ?? null;
+        $subdomain = isset($_GET['tenant']) ? $_GET['tenant'] : (isset($_POST['tenant']) ? $_POST['tenant'] : null);
         
         if (!$subdomain) {
             // Check JSON input
@@ -22,7 +23,6 @@ class TenantManager {
 
         if (!$subdomain) {
             // 2. Detección por Host (Subdominio)
-            $hostPart = explode(':', $host)[0];
             $parts = explode('.', $hostPart);
             
             if (count($parts) > 2) {
@@ -36,7 +36,7 @@ class TenantManager {
 
         if (!$subdomain) {
             // 3. Detección por Referer (Útil para PWA en dominio principal)
-            $referer = $_SERVER['HTTP_REFERER'] ?? '';
+            $referer = isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : '';
             if ($referer && strpos($referer, 'tenant=') !== false) {
                 $query = parse_url($referer, PHP_URL_QUERY);
                 if ($query) {

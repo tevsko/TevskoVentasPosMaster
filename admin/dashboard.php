@@ -3,33 +3,45 @@
 require_once 'layout_head.php';
 
 $db = Database::getInstance()->getConnection();
+$tenantId = $currentUser['tenant_id'] ?? null;
 
 // --- ESTADISTICAS RAPIDAS ---
 
-// Total Ventas Hoy
+// Total Ventas Hoy (using shift logic: 9 AM to now)
 $driver = \Database::getInstance()->getDriver();
 if ($driver === 'sqlite') {
-    // SQLite: use explicit timestamp range for today
-    $start = date('Y-m-d 00:00:00');
-    $end = date('Y-m-d 23:59:59');
-    $stmt = $db->prepare("SELECT SUM(amount) FROM sales WHERE created_at BETWEEN :start AND :end");
+    // SQLite: use shift logic (9 AM start)
+    $cur_h = (int)date('H');
+    $shift_date = ($cur_h < 9) ? date('Y-m-d', strtotime('-1 day')) : date('Y-m-d');
+    $start = $shift_date . ' 09:00:00';
+    $end = date('Y-m-d H:i:s');
+    $stmt = $db->prepare("SELECT SUM(amount) FROM sales WHERE created_at >= :start AND created_at <= :end");
     $stmt->execute([':start' => $start, ':end' => $end]);
     $salesToday = $stmt->fetchColumn() ?: 0;
 } else {
-    $stmt = $db->query("SELECT SUM(amount) FROM sales WHERE DATE(created_at) = CURDATE()");
+    // MySQL: use shift logic
+    $cur_h = (int)date('H');
+    $shift_date = ($cur_h < 9) ? date('Y-m-d', strtotime('-1 day')) : date('Y-m-d');
+    $start = $shift_date . ' 09:00:00';
+    $end = date('Y-m-d H:i:s');
+    $stmt = $db->prepare("SELECT SUM(amount) FROM sales WHERE created_at >= ? AND created_at <= ? AND tenant_id = ?");
+    $stmt->execute([$start, $end, $tenantId]);
     $salesToday = $stmt->fetchColumn() ?: 0;
 }
 
 // Sucursales Activas
-$stmt = $db->query("SELECT COUNT(*) FROM branches WHERE status = 1");
+$stmt = $driver === 'sqlite' ? $db->query("SELECT COUNT(*) FROM branches WHERE status = 1") : $db->prepare("SELECT COUNT(*) FROM branches WHERE status = 1 AND tenant_id = ?");
+if ($driver !== 'sqlite') $stmt->execute([$tenantId]);
 $activeBranches = $stmt->fetchColumn();
 
 // Empleados
-$stmt = $db->query("SELECT COUNT(*) FROM users WHERE role = 'employee'");
+$stmt = $driver === 'sqlite' ? $db->query("SELECT COUNT(*) FROM users WHERE role = 'employee'") : $db->prepare("SELECT COUNT(*) FROM users WHERE role = 'employee' AND tenant_id = ?");
+if ($driver !== 'sqlite') $stmt->execute([$tenantId]);
 $totalEmployees = $stmt->fetchColumn();
 
 // Máquinas Activas
-$stmt = $db->query("SELECT COUNT(*) FROM machines WHERE active = 1");
+$stmt = $driver === 'sqlite' ? $db->query("SELECT COUNT(*) FROM machines WHERE active = 1") : $db->prepare("SELECT COUNT(*) FROM machines WHERE active = 1 AND tenant_id = ?");
+if ($driver !== 'sqlite') $stmt->execute([$tenantId]);
 $activeMachines = $stmt->fetchColumn();
 
 // --- MONITOREO ---
@@ -41,13 +53,35 @@ if ($driver === 'sqlite') {
     $stmt = $db->prepare("SELECT id, username, role, last_activity, branch_id FROM users WHERE last_activity >= :cutoff ORDER BY last_activity DESC");
     $stmt->execute([':cutoff' => $cutoff]);
 } else {
-    $stmt = $db->query("SELECT id, username, role, last_activity, branch_id FROM users WHERE last_activity >= NOW() - INTERVAL 10 MINUTE ORDER BY last_activity DESC");
+    $stmt = $db->prepare("SELECT id, username, role, last_activity, branch_id FROM users WHERE last_activity >= NOW() - INTERVAL 10 MINUTE AND tenant_id = ? ORDER BY last_activity DESC");
+    $stmt->execute([$tenantId]);
 }
 $onlineUsers = $stmt->fetchAll();
 
 ?>
 
+<!-- Botón de acceso rápido al POS -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-0 shadow-sm bg-gradient" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+            <div class="card-body py-4">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="text-white">
+                        <h4 class="mb-1"><i class="bi bi-shop-window me-2"></i>Punto de Venta</h4>
+                        <p class="mb-0 opacity-75">Accede al sistema de ventas para realizar transacciones</p>
+                    </div>
+                    <a href="../pos/index.php" class="btn btn-light btn-lg px-5">
+                        <i class="bi bi-arrow-right-circle me-2"></i>
+                        Abrir POS
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row g-4 mb-4">
+
     <!-- Ventas Hoy -->
     <div class="col-md-3">
         <div class="card card-stat bg-primary text-white p-3 h-100">
@@ -162,14 +196,27 @@ $onlineUsers = $stmt->fetchAll();
                         </thead>
                         <tbody>
                             <?php
-                            $sql = "SELECT s.created_at, b.name as branch, m.name as machine, s.amount, u.username 
-                                    FROM sales s 
-                                    JOIN branches b ON s.branch_id = b.id 
-                                    JOIN machines m ON s.machine_id = m.id 
-                                    JOIN users u ON s.user_id = u.id 
-                                    ORDER BY s.created_at DESC LIMIT 8";
-                            $stmt = $db->query($sql);
-                            $rows = $stmt->fetchAll();
+                            if ($driver === 'sqlite') {
+                                $sql = "SELECT s.created_at, b.name as branch, m.name as machine, s.amount, u.username 
+                                        FROM sales s 
+                                        LEFT JOIN branches b ON s.branch_id = b.id 
+                                        LEFT JOIN machines m ON s.machine_id = m.id 
+                                        LEFT JOIN users u ON s.user_id = u.id 
+                                        ORDER BY s.created_at DESC LIMIT 8";
+                                $stmt = $db->query($sql);
+                                $rows = $stmt->fetchAll();
+                            } else {
+                                $sql = "SELECT s.created_at, b.name as branch, m.name as machine, s.amount, u.username 
+                                        FROM sales s 
+                                        LEFT JOIN branches b ON s.branch_id = b.id 
+                                        LEFT JOIN machines m ON s.machine_id = m.id 
+                                        LEFT JOIN users u ON s.user_id = u.id 
+                                        WHERE s.tenant_id = ? 
+                                        ORDER BY s.created_at DESC LIMIT 8";
+                                $stmt = $db->prepare($sql);
+                                $stmt->execute([$tenantId]);
+                                $rows = $stmt->fetchAll();
+                            }
                             
                             if (empty($rows)) {
                                 echo "<tr><td colspan='5' class='text-center text-muted py-4'>Sin movimientos recientes</td></tr>";
@@ -177,10 +224,10 @@ $onlineUsers = $stmt->fetchAll();
                                 foreach ($rows as $row) {
                                     echo "<tr>";
                                     echo "<td>" . date('H:i', strtotime($row['created_at'])) . "</td>";
-                                    echo "<td><span class='badge bg-light text-dark border'>" . htmlspecialchars($row['branch']) . "</span></td>";
-                                    echo "<td>" . htmlspecialchars($row['machine']) . "</td>";
+                                    echo "<td><span class='badge bg-light text-dark border'>" . htmlspecialchars($row['branch'] ?? 'N/A') . "</span></td>";
+                                    echo "<td>" . htmlspecialchars($row['machine'] ?? 'N/A') . "</td>";
                                     echo "<td class='fw-bold text-success'>$" . number_format($row['amount'], 2) . "</td>";
-                                    echo "<td>" . htmlspecialchars($row['username']) . "</td>";
+                                    echo "<td>" . htmlspecialchars($row['username'] ?? 'N/A') . "</td>";
                                     echo "</tr>";
                                 }
                             }
